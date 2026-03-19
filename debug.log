@@ -1,0 +1,12 @@
+[2026-01-14T14:25:31.353Z] Incoming Request: quais os projetos importantes?
+[2026-01-14T14:25:32.364Z] Extracted Query: "important projects"
+[2026-01-14T14:25:32.976Z] Intelligence Result: TYPE=SEARCH, COUNT=0
+[2026-01-14T14:25:34.133Z] Incoming Request: liste os três primeiros
+[2026-01-14T14:25:34.616Z] Extracted Query: "projetos importantes"
+[2026-01-14T14:25:35.090Z] Intelligence Result: TYPE=IMPORTANT, COUNT=11
+[2026-01-14T14:26:18.327Z] Incoming Request: quais os projetos importantes?
+[2026-01-14T14:26:18.946Z] Extracted Query: "projetos importantes"
+[2026-01-14T14:26:19.671Z] Intelligence Result: TYPE=IMPORTANT, COUNT=11
+[2026-01-14T14:26:21.441Z] Incoming Request: liste os três primeiros
+[2026-01-14T14:26:21.859Z] Extracted Query: "projetos importantes"
+[2026-01-14T14:26:22.436Z] Intelligence Result: TYPE=IMPORTANT, COUNT=11

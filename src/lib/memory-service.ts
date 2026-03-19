@@ -1,0 +1,202 @@
+import { supabase } from '@/db';
+import { generateEmbedding, chunkText } from './embeddings';
+import fs from 'fs';
+import path from 'path';
+
+function isInJsonWhitelist(phone: string): boolean {
+  try {
+    const filePath = path.join(process.cwd(), 'jarvis-permissions.json');
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return !!Object.entries(data.users || {}).find(([k]) => phone.includes(k));
+  } catch {
+    return false;
+  }
+}
+
+// ─── Whitelist ────────────────────────────────────────────────────────────────
+
+export async function isWhitelisted(phone: string): Promise<boolean> {
+  const cleanPhone = phone.replace(/\D/g, '');
+  const { data } = await supabase
+    .from('whitelist')
+    .select('active')
+    .eq('phone', cleanPhone)
+    .maybeSingle();
+  return !!data?.active;
+}
+
+export async function canStoreMemory(phone: string): Promise<boolean> {
+  const cleanPhone = phone.replace(/\D/g, '');
+  const { data } = await supabase
+    .from('whitelist')
+    .select('active, can_store_memory')
+    .eq('phone', cleanPhone)
+    .maybeSingle();
+
+  // Se não está no DB, aceita quem está no JSON de permissões
+  if (data == null) return isInJsonWhitelist(phone);
+
+  return !!data?.active && !!data?.can_store_memory;
+}
+
+// ─── Memórias ────────────────────────────────────────────────────────────────
+
+export async function saveMemory(content: string, phone: string, source: 'pdf' | 'message') {
+  const embedding = await generateEmbedding(content);
+
+  const { error } = await supabase.from('memories').insert({
+    id: crypto.randomUUID(),
+    phone,
+    content,
+    source,
+    embedding,
+    created_at: Date.now(),
+  });
+
+  if (error) throw error;
+
+  console.log(`[Memory] Memória salva: "${content.slice(0, 60)}..."`);
+}
+
+export async function searchMemories(query: string, limit = 5): Promise<string[]> {
+  const embedding = await generateEmbedding(query);
+
+  const { data, error } = await supabase.rpc('search_memories', {
+    query_embedding: embedding,
+    match_count: limit,
+  });
+
+  if (error) throw error;
+
+  return (data ?? []).map((r: { content: string }) => r.content);
+}
+
+// ─── Documentos (PDF) ────────────────────────────────────────────────────────
+
+function extractTitle(filename: string): string {
+  return filename
+    .replace(/\.[^.]+$/, '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+export async function saveDocument(
+  pdfBuffer: Buffer,
+  filename: string,
+  uploaderPhone: string
+): Promise<string> {
+  console.log(`[PDF] ▶ Iniciando processamento: "${filename}" (${(pdfBuffer.length / 1024).toFixed(1)} KB)`);
+
+  console.log(`[PDF] 📄 Extraindo texto...`);
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const pdfParse = require('pdf-parse') as (buffer: Buffer) => Promise<{ text: string; numpages: number }>;
+  const parsed = await pdfParse(pdfBuffer);
+  const text = parsed.text;
+
+  if (!text || text.trim().length < 10) {
+    console.error(`[PDF] ❌ PDF sem texto extraível: "${filename}"`);
+    throw new Error('PDF sem texto extraível (pode ser escaneado/imagem).');
+  }
+
+  // Remove null bytes e caracteres de controle que o PostgreSQL rejeita
+  const cleanText = text.replace(/\u0000/g, '').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+  console.log(`[PDF] ✅ Texto extraído: ${cleanText.length} caracteres, ${parsed.numpages} página(s)`);
+
+  const documentTitle = extractTitle(filename);
+  console.log(`[PDF] 📌 Título do documento: "${documentTitle}"`);
+
+  // Registra o documento
+  const { data: doc, error: docError } = await supabase
+    .from('documents')
+    .insert({
+      id: crypto.randomUUID(),
+      uploader_phone: uploaderPhone,
+      filename,
+      description: documentTitle,
+      total_chunks: 0,
+      created_at: Date.now(),
+    })
+    .select('id')
+    .single();
+
+  if (docError) throw docError;
+  console.log(`[PDF] 💾 Documento registrado no Supabase (id: ${doc.id})`);
+
+  // Gera e salva chunks com embeddings
+  const chunks = chunkText(cleanText);
+  console.log(`[PDF] 🔪 Texto dividido em ${chunks.length} chunks — gerando embeddings...`);
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    const enrichedChunk = `[Documento: ${documentTitle}]\n${chunk}`;
+    const embedding = await generateEmbedding(enrichedChunk);
+
+    const { error } = await supabase.from('document_chunks').insert({
+      id: crypto.randomUUID(),
+      document_id: doc.id,
+      document_title: documentTitle,
+      chunk_index: i,
+      content: chunk,
+      embedding,
+      created_at: Date.now(),
+    });
+
+    if (error) throw error;
+    console.log(`[PDF] ⚡ Chunk ${i + 1}/${chunks.length} salvo`);
+  }
+
+  // Atualiza contagem de chunks
+  const { error: updateError } = await supabase
+    .from('documents')
+    .update({ total_chunks: chunks.length })
+    .eq('id', doc.id);
+
+  if (updateError) throw updateError;
+
+  console.log(`[PDF] ✅ "${filename}" processado com sucesso: ${chunks.length} chunks salvos no Supabase`);
+  return doc.id;
+}
+
+export async function searchDocuments(query: string, limit = 5): Promise<string[]> {
+  const embedding = await generateEmbedding(query);
+
+  const { data, error } = await supabase.rpc('search_document_chunks', {
+    query_embedding: embedding,
+    match_count: limit,
+  });
+
+  if (error) throw error;
+
+  return (data ?? []).map((r: { content: string; document_title: string | null }) =>
+    r.document_title ? `[${r.document_title}] ${r.content}` : r.content
+  );
+}
+
+// ─── Contexto semântico para o LLM ───────────────────────────────────────────
+
+export async function getMemoryContext(query: string): Promise<string> {
+  try {
+    const [memories, docChunks] = await Promise.all([
+      searchMemories(query, 3),
+      searchDocuments(query, 3),
+    ]);
+
+    const parts: string[] = [];
+
+    if (memories.length > 0) {
+      parts.push(`MEMÓRIAS RELEVANTES:\n${memories.map(m => `- ${m}`).join('\n')}`);
+    }
+
+    if (docChunks.length > 0) {
+      parts.push(`TRECHOS DE DOCUMENTOS RELEVANTES:\n${docChunks.map(d => `- ${d}`).join('\n')}`);
+    }
+
+    if (parts.length === 0) return '';
+
+    return `\n\n${parts.join('\n\n')}\n\n`;
+  } catch (e) {
+    console.error('[Memory] Falha ao buscar contexto:', e);
+    return '';
+  }
+}

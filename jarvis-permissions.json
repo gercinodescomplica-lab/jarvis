@@ -1,0 +1,18 @@
+{
+  "users": {
+    "5511949633602": {
+      "name": "Gercino",
+      "permission": "send_and_receive"
+    }
+  },
+  "groups": {
+    "Test-Jarvis8": {
+      "jid": "120363425010406850@g.us",
+      "permission": "send_and_receive"
+    },
+    "Jarvis-Prodam": {
+      "jid": "120363424207983724@g.us",
+      "permission": "send_and_receive"
+    }
+  }
+}
