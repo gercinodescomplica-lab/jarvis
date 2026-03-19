@@ -1,3 +1,15 @@
 google-credentials.json
 
 .trigger
+/node_modules
+/dist
+/build
+/.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env
+/next-env.d.ts
+.next
+/out
