@@ -41,13 +41,14 @@ export async function POST(req: NextRequest) {
         console.log(`[Telegram] Received: "${userText}" from ${chatId}`);
 
         // 1. Process with Jarvis Intelligence
-        // We reuse the same logic as the main Chat API
-        const intelligenceResult = await JarvisIntelligence.processQuery(userText);
+        const intelligenceResult = await JarvisIntelligence.processQuery(userText, chatId);
 
         // 2. Format Response (Reuse logic or simplify)
         let replyText = "";
 
-        if (intelligenceResult.type === "CALENDAR") {
+        if (intelligenceResult.type === "SET_REMINDER") {
+            replyText = intelligenceResult.summary;
+        } else if (intelligenceResult.type === "CALENDAR") {
             replyText = `📅 **Agenda Encontrada**\n\n`;
             if (intelligenceResult.data.length === 0) {
                 replyText += "Nenhuma reunião nas próximas 24h.";
@@ -57,6 +58,8 @@ export async function POST(req: NextRequest) {
                     replyText += `📍 ${evt.location}\n\n`;
                 });
             }
+        } else if (intelligenceResult.type === "CHIT_CHAT") {
+            replyText = "Olá! Como posso ajudar? Posso buscar projetos, agenda, criar tarefas ou definir lembretes.";
         } else if (intelligenceResult.data.length > 0) {
             // Projects
             replyText = `📂 **Projetos Encontrados**\n\n`;

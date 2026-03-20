@@ -12,6 +12,9 @@
     "lint": "eslint",
     "test:webhook": "curl -X POST http://localhost:3000/api/evolution/webhook -H \"Content-Type: application/json\" -d '{\"event\":\"messages.upsert\",\"data\":{\"message\":{\"conversation\":\"Teste do Jarvis via script local!\"},\"key\":{\"remoteJid\":\"5511949633602@s.whatsapp.net\"}}}'",
     "stop_server": "lsof -ti:3000 | xargs kill -9",
+    "db:push": "bash scripts/db-push.sh",
+    "trigger:deploy": "npx trigger.dev@latest deploy",
+    "trigger:dev": "npx trigger.dev@latest dev",
     "migrate": "tsx scripts/migrate-supabase.ts",
     "test:pdf": "tsx scripts/test-pdf.ts"
   },

@@ -1,5 +1,6 @@
 import { NotionService, NotionProject } from "./notion-service";
 import { OpenAIAdapter } from '@jarvis/adapters/src/openai';
+import { ReminderService } from "./reminder-service";
 
 
 
@@ -26,8 +27,8 @@ export class JarvisIntelligence {
     /**
      * Routes the natural language query using AI Classification.
      */
-    static async processQuery(query: string): Promise<{
-        type: "SEARCH" | "OVERDUE" | "IMPORTANT" | "RISK" | "DEADLINE" | "DETAILS" | "CALENDAR" | "CREATE_PROJECT" | "MISSING_INFO" | "CHIT_CHAT" | "URGENCY" | "FILTER";
+    static async processQuery(query: string, chatId?: string): Promise<{
+        type: "SEARCH" | "OVERDUE" | "IMPORTANT" | "RISK" | "DEADLINE" | "DETAILS" | "CALENDAR" | "CREATE_PROJECT" | "MISSING_INFO" | "CHIT_CHAT" | "URGENCY" | "FILTER" | "SET_REMINDER";
         data: any[];
         summary: string;
         details?: string;
@@ -56,6 +57,9 @@ export class JarvisIntelligence {
         const intent = analysis.intent;
 
         switch (intent) {
+            case "SET_REMINDER":
+                return this.handleReminderIntent(query, chatId) as any;
+
             case "CHIT_CHAT":
                 return { type: "CHIT_CHAT", data: [], summary: "Interaction Social." };
 
@@ -188,6 +192,7 @@ export class JarvisIntelligence {
 
         AVAILABLE INTENTS:
         - [CHIT_CHAT]: Social greetings (Oi, Bom dia).
+        - [SET_REMINDER]: User wants to be reminded of something at a specific time (Me lembra de, Lembrete em X minutos, Avisa em X horas, Remind me).
         - [CREATE_PROJECT]: Create new task (Criar tarefa, Lembrar de).
         - [DETAILS]: Ask for details of a specific project (Detalhes de X).
         - [CALENDAR]: Ask about meetings/schedule (Reuniões hoje).
@@ -214,8 +219,11 @@ export class JarvisIntelligence {
         OUTPUT JSON ONLY:
         {
             "intent": "TOKEN",
-            "filters": [ { "field": "...", "value": "..." } ] (Valid only for FILTER)
+            "filters": [ { "field": "...", "value": "..." } ], (Valid only for FILTER)
+            "reminderDetails": { "message": "...", "remindAt": "ISO8601" } (Valid only for SET_REMINDER, remindAt computed from current time)
         }
+
+        Current date/time (Brazil): ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
         `;
 
         try {
@@ -229,6 +237,54 @@ export class JarvisIntelligence {
     }
 
     // --- HANDLERS ---
+
+    private static async handleReminderIntent(query: string, chatId?: string) {
+        const extractionPrompt = `
+        Extract reminder details from the user's message.
+        Current date/time (Brazil/São Paulo): ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
+
+        User Input: "${query}"
+
+        Output JSON ONLY:
+        {
+            "message": "what the user wants to be reminded about",
+            "remindAt": "ISO8601 datetime (e.g. 2026-03-19T14:30:00)"
+        }
+        If you cannot determine a time, set remindAt to null.
+        `;
+
+        try {
+            const raw = await this.openai.generateResponse(extractionPrompt, query);
+            const slots = JSON.parse(raw.replace(/```json|```/g, "").trim());
+
+            if (!slots.remindAt) {
+                return {
+                    type: "SET_REMINDER",
+                    data: [],
+                    summary: "Entendido! Mas para qual horário devo te lembrar?"
+                };
+            }
+
+            const remindAt = new Date(slots.remindAt);
+            const targetChatId = chatId || process.env.TELEGRAM_CHAT_ID || '';
+
+            await ReminderService.create(slots.message, remindAt, targetChatId);
+
+            const timeStr = remindAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+            return {
+                type: "SET_REMINDER",
+                data: [],
+                summary: `Lembrete definido! Vou te avisar às ${timeStr} para: *${slots.message}*`
+            };
+        } catch (e) {
+            console.error("[JarvisIntelligence] Reminder extraction failed:", e);
+            return {
+                type: "SET_REMINDER",
+                data: [],
+                summary: "Não consegui criar o lembrete. Tente novamente com um horário claro, ex: 'em 10 minutos'."
+            };
+        }
+    }
 
     private static async handleCreateIntent(query: string) {
         // Use AI to extract slots

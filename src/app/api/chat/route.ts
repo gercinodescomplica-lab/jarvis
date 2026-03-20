@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { GraphCalendarAdapter } from '@jarvis/adapters/src/ms-graph';
+import { ReminderService } from '@/lib/reminder-service';
+import { TelegramConfigService } from '@/lib/telegram-config';
 
 export const maxDuration = 30;
 
@@ -45,9 +47,83 @@ async function getCalendarContext(messages: any[]) {
     return "";
 }
 
+const REMINDER_KEYWORDS = ['lembr', 'lembrete', 'me avisa', 'me alerta', 'remind', 'daqui a', 'em \d'];
+
+function isReminderRequest(text: string): boolean {
+    const lower = text.toLowerCase();
+    return REMINDER_KEYWORDS.some(k => lower.includes(k));
+}
+
+async function extractAndSaveReminder(userText: string, endpoint: string, deployment: string, apiKey: string, apiVersion: string): Promise<string | null> {
+    const azureUrl = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`;
+
+    const res = await fetch(azureUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+        body: JSON.stringify({
+            messages: [
+                {
+                    role: 'system',
+                    content: `Extract reminder details from the user message.
+Current date/time (Brazil/São Paulo): ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}.
+Return ONLY valid JSON: {"message": "what to remind", "remindAt": "ISO8601 datetime"}.
+If no time found, set remindAt to null.`
+                },
+                { role: 'user', content: userText }
+            ],
+            stream: false
+        })
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    const raw = data.choices?.[0]?.message?.content || '';
+
+    try {
+        const slots = JSON.parse(raw.replace(/```json|```/g, '').trim());
+        if (!slots.remindAt) return null;
+
+        const remindAt = new Date(slots.remindAt);
+        const chatId = TelegramConfigService.getChatId() || '';
+        await ReminderService.create(slots.message, remindAt, chatId);
+
+        const timeStr = remindAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+        return `Lembrete definido! Vou te avisar às ${timeStr} para: ${slots.message}`;
+    } catch {
+        return null;
+    }
+}
+
 export async function POST(req: Request) {
     try {
         const { messages } = await req.json();
+
+        const lastUserMessage = [...messages].reverse().find((m: any) => m.role === 'user')?.content || '';
+
+        // Intercept reminder requests before streaming
+        if (isReminderRequest(lastUserMessage)) {
+            const endpoint = process.env.AZURE_OPENAI_ENDPOINT || "https://oia-gercinotest.openai.azure.com/";
+            const deployment = process.env.AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-4.1-mini";
+            const apiKey = process.env.AZURE_OPENAI_API_KEY || '';
+            const apiVersion = process.env.AZURE_OPENAI_API_VERSION || "2025-01-01-preview";
+
+            const confirmation = await extractAndSaveReminder(lastUserMessage, endpoint, deployment, apiKey, apiVersion);
+            if (confirmation) {
+                const encoder = new TextEncoder();
+                const messageId = `msg-${Date.now()}`;
+                const stream = new ReadableStream({
+                    start(controller) {
+                        controller.enqueue(encoder.encode(`0:${JSON.stringify({ id: messageId, role: 'assistant' })}\n`));
+                        controller.enqueue(encoder.encode(`0:${JSON.stringify(confirmation)}\n`));
+                        controller.enqueue(encoder.encode(`d:{"finishReason":"stop"}\n`));
+                        controller.close();
+                    }
+                });
+                return new Response(stream, {
+                    headers: { 'Content-Type': 'text/plain; charset=utf-8', 'x-vercel-ai-data-stream': 'v1' }
+                });
+            }
+        }
 
         // 1. Fetch Calendar Context if needed
         const calendarContext = await getCalendarContext(messages);

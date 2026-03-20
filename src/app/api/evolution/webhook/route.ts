@@ -460,7 +460,7 @@ async function processAudio(phone: string, messageKey: Record<string, unknown>, 
 
 // ─── Parser de lembretes via LLM ──────────────────────────────────────────────
 
-const REMINDER_REGEX = /me\s+lemb(?:re|ra)\s+d[ae]?\s+|lembrete[:\s]+|me\s+avis[ae]\s+(?:d[ae]\s+)?|n(?:ao|ão)\s+(?:me\s+)?(?:deixa|deixe)\s+(?:eu\s+)?esquecer/i;
+const REMINDER_REGEX = /me\s+lemb(?:re|ra|rar|retes?)\s*(?:d[ae]?\s+)?|lembrete[:\s]+|me\s+avis[ae]\s*(?:d[ae]\s+)?|n(?:ao|ão)\s+(?:me\s+)?(?:deixa|deixe)\s+(?:eu\s+)?esquecer|lembr(?:a|e|ar)\s+d[ae]\s+|quero\s+(?:um\s+)?lembrete/i;
 
 async function parseReminder(text: string): Promise<{ what: string; when: Date } | null> {
   const nowBRT = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'full', timeStyle: 'short' });
@@ -619,8 +619,8 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
       .limit(10);
     const messages = (rawHistory ?? []).reverse().map((m: { role: string; content: string }) => ({ role: m.role, content: m.content }));
 
-    // Busca contexto de memória (sem calendar, já tratado no fast-path)
-    const memoryContext = await getMemoryContext(text);
+    // Busca contexto de memória isolado por owner (phone do usuário ou JID do grupo)
+    const memoryContext = await getMemoryContext(text, phone);
 
     // ── Fast-path: Notion (resposta direta com dados reais, sem passar pelo LLM) ─
     if (isNotionQuery(text)) {

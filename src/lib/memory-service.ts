@@ -58,12 +58,13 @@ export async function saveMemory(content: string, phone: string, source: 'pdf' |
   console.log(`[Memory] Memória salva: "${content.slice(0, 60)}..."`);
 }
 
-export async function searchMemories(query: string, limit = 5): Promise<string[]> {
+export async function searchMemories(query: string, owner: string, limit = 5): Promise<string[]> {
   const embedding = await generateEmbedding(query);
 
   const { data, error } = await supabase.rpc('search_memories', {
     query_embedding: embedding,
     match_count: limit,
+    owner_id: owner,
   });
 
   if (error) throw error;
@@ -158,12 +159,13 @@ export async function saveDocument(
   return doc.id;
 }
 
-export async function searchDocuments(query: string, limit = 5): Promise<string[]> {
+export async function searchDocuments(query: string, owner: string, limit = 5): Promise<string[]> {
   const embedding = await generateEmbedding(query);
 
   const { data, error } = await supabase.rpc('search_document_chunks', {
     query_embedding: embedding,
     match_count: limit,
+    owner_id: owner,
   });
 
   if (error) throw error;
@@ -175,11 +177,11 @@ export async function searchDocuments(query: string, limit = 5): Promise<string[
 
 // ─── Contexto semântico para o LLM ───────────────────────────────────────────
 
-export async function getMemoryContext(query: string): Promise<string> {
+export async function getMemoryContext(query: string, owner: string): Promise<string> {
   try {
     const [memories, docChunks] = await Promise.all([
-      searchMemories(query, 3),
-      searchDocuments(query, 3),
+      searchMemories(query, owner, 3),
+      searchDocuments(query, owner, 3),
     ]);
 
     const parts: string[] = [];
