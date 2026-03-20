@@ -65,7 +65,7 @@ async function main() {
   for (const query of queries) {
     console.log(`\n🔍 Query: "${query}"`);
     try {
-      const results = await searchDocuments(query, 3);
+      const results = await searchDocuments(query, 'test-user', 3);
       if (results.length === 0) {
         console.log('   (nenhum resultado)');
       } else {

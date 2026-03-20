@@ -7,6 +7,7 @@ import dotenv from "dotenv";
 const nextConfig: NextConfig = {
   /* config options here */
   reactCompiler: true,
+  turbopack: {},
   transpilePackages: ['@jarvis/core', '@jarvis/adapters'],
   serverExternalPackages: ['pdf-parse'],
   webpack: (config, { dev }) => {

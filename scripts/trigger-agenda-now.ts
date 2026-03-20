@@ -5,7 +5,7 @@ import { sendAgendaTask } from '../src/trigger/agenda';
 
 async function main() {
   console.log('🚀 Disparando agenda agora...');
-  const result = await sendAgendaTask.trigger({});
+  const result = await sendAgendaTask.trigger({} as any);
   console.log('✅ Run criado:', JSON.stringify(result, null, 2));
 }
 

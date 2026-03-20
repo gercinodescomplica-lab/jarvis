@@ -2,6 +2,7 @@ import { tool, jsonSchema } from 'ai';
 import { NotionService } from '@/lib/notion-service';
 import { CalendarDB } from '@/lib/calendar-db';
 import { GraphCalendarAdapter } from '@jarvis/adapters/src/ms-graph';
+import { fetchDRMData, formatDRMContext } from '@/lib/drm-service';
 
 export const searchProjects = tool({
     description: 'Search for projects or tasks in Notion by keyword, status (e.g. "atrasado"), or urgency.',
@@ -136,6 +137,50 @@ export const getProjectDetails = tool({
         console.log(`[Tool] Getting Details for: ${id}`);
         const details = await NotionService.getProjectDetails(id);
         return { details };
+    }
+});
+
+export const getDRMData = tool({
+    description: `Busca dados comerciais em tempo real do Dashboard DRM (Diretoria Regional de Mercado).
+Use esta ferramenta SEMPRE que o usuário perguntar sobre:
+- Metas, contratado, forecast ou atingimento (geral ou de um gerente específico)
+- Carteira de clientes de um gerente (servedClients)
+- Pipeline de projetos (quente, morno, frio) por gerente ou trimestre (Q1/Q2/Q3/Q4)
+- Chamados de Customer Experience (CX)
+- Visitas comerciais
+- Ranking ou comparação entre gerentes
+- Qualquer dado da DRM ou dashboard comercial`,
+    inputSchema: jsonSchema<{ query: string; managerName?: string }>({
+        type: 'object',
+        properties: {
+            query: {
+                type: 'string',
+                description: 'A pergunta original do usuário sobre dados comerciais.'
+            },
+            managerName: {
+                type: 'string',
+                description: 'Nome do gerente específico, se mencionado (ex: "Bruno Ítalo", "Paulo"). Omitir para dados gerais.'
+            }
+        },
+        required: ['query'],
+        additionalProperties: false,
+    }),
+    execute: async ({ query, managerName }) => {
+        console.log(`[Tool] getDRMData — query: "${query}", manager: "${managerName || 'all'}"`);
+        try {
+            const drmData = await fetchDRMData();
+            const effectiveQuery = managerName ? `${query} ${managerName}` : query;
+            return {
+                success: true,
+                context: formatDRMContext(drmData, effectiveQuery),
+                summary: drmData.summary,
+                managersCount: drmData.data.length,
+                timestamp: drmData.timestamp,
+            };
+        } catch (err: any) {
+            console.error('[Tool] getDRMData error:', err);
+            return { success: false, error: err.message || 'Falha ao buscar dados da DRM.' };
+        }
     }
 });
 

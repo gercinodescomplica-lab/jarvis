@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { GraphCalendarAdapter } from '@jarvis/adapters/src/ms-graph';
 import { ReminderService } from '@/lib/reminder-service';
 import { TelegramConfigService } from '@/lib/telegram-config';
+import { getDRMContext } from '@/lib/drm-service';
 
 export const maxDuration = 30;
 
@@ -128,6 +129,9 @@ export async function POST(req: Request) {
         // 1. Fetch Calendar Context if needed
         const calendarContext = await getCalendarContext(messages);
 
+        // 1b. Fetch DRM Commercial Context if needed
+        const drmContext = await getDRMContext(lastUserMessage);
+
         // 2. Prepare Payload (Back to original construction that worked)
         const endpoint = process.env.AZURE_OPENAI_ENDPOINT || "https://oia-gercinotest.openai.azure.com/";
         const deployment = process.env.AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-4.1-mini";
@@ -149,9 +153,9 @@ export async function POST(req: Request) {
                 messages: [
                     {
                         role: "system",
-                        content: `You are Jarvis, a highly advanced AI Assistant. Be warm, concise and helpful. 
+                        content: `You are Jarvis, a highly advanced AI Assistant. Be warm, concise and helpful.
                         IMPORTANT: Use periods and commas frequently to split long sentences, as our voice system has limits on sentence length.
-                        CURRENT BRAZIL DATE/TIME: ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}${calendarContext}`
+                        CURRENT BRAZIL DATE/TIME: ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}${calendarContext}${drmContext}`
                     },
                     ...messages
                 ],
