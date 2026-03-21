@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { useChat } from "@ai-sdk/react"
 import { VoiceOrb } from "@/components/voice-orb"
 import { VoiceInput } from "@/components/voice-input"
 import { Square } from "lucide-react"
@@ -12,124 +13,22 @@ export default function VoicePage() {
   const [inputText, setInputText] = useState("")
   const [audioData, setAudioData] = useState<Uint8Array>(new Uint8Array(0))
   const [isSpeaking, setIsSpeaking] = useState(false)
+  const shouldSpeakNextRef = useRef(false)
 
-  // Vercel AI SDK Hook
-  // Manual Chat State Management (replacing broken useChat hook)
-  const [messages, setMessages] = useState<any[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-
-  // Manual sendMessage implementation  
-  const sendMessage = async (messageOrContent: any, options: { shouldSpeak?: boolean } = {}) => {
-    const { shouldSpeak = false } = options
-    const content = typeof messageOrContent === 'string' ? messageOrContent : messageOrContent.content
-
-    const userMessage = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content
-    }
-
-    setMessages(prev => [...prev, userMessage])
-    setIsLoading(true)
-
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [...messages, userMessage].map(m => ({ role: m.role, content: m.content }))
-        })
-      })
-
-      if (!response.ok) throw new Error('API failed')
-      if (!response.body) throw new Error('No stream')
-
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let assistantMessage = {
-        id: `assistant-${Date.now()}`,
-        role: 'assistant',
-        content: '',
-        toolInvocations: [] as any[]
+  const { messages, sendMessage, status, setMessages } = useChat({
+    onFinish: ({ message }) => {
+      if (shouldSpeakNextRef.current) {
+        const text = message.parts
+          .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+          .map(p => p.text)
+          .join('')
+        if (text) speak(text)
+        shouldSpeakNextRef.current = false
       }
+    },
+  })
 
-      setMessages(prev => [...prev, assistantMessage])
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        const chunk = decoder.decode(value, { stream: true })
-        const lines = chunk.split('\n').filter(l => l.trim())
-
-        for (const line of lines) {
-          if (line.startsWith('0:')) {
-            try {
-              const data = JSON.parse(line.slice(2))
-              if (typeof data === 'string') {
-                assistantMessage.content += data
-                setMessages(prev => {
-                  const newMessages = [...prev]
-                  newMessages[newMessages.length - 1] = { ...assistantMessage }
-                  return newMessages
-                })
-              }
-            } catch (e) {
-              console.warn('Parse error:', e)
-            }
-          }
-          // Tool Call (9:)
-          else if (line.startsWith('9:')) {
-            try {
-              const toolCall = JSON.parse(line.slice(2))
-              console.log('[Manual Chat] Tool Call:', toolCall)
-              // Optional: Show "Thinking..." or tool UI
-            } catch (e) { console.warn('Tool Parse Error', e) }
-          }
-          // Tool Return (a:)
-          else if (line.startsWith('a:')) {
-            try {
-              const toolResult = JSON.parse(line.slice(2))
-              console.log('[Manual Chat] Tool Result:', toolResult)
-
-              // Inject into message state for GenUI rendering
-              const toolInvocation = {
-                state: 'result',
-                toolCallId: toolResult.toolCallId,
-                toolName: toolResult.toolName,
-                result: toolResult.result
-              }
-
-              assistantMessage.toolInvocations = assistantMessage.toolInvocations || []
-              assistantMessage.toolInvocations.push(toolInvocation)
-
-              setMessages(prev => {
-                const newMessages = [...prev]
-                newMessages[newMessages.length - 1] = { ...assistantMessage }
-                return newMessages
-              })
-
-            } catch (e) { console.warn('Tool Result Parse Error', e) }
-          }
-        }
-      }
-
-      // Auto-speak the response only if requested
-      if (assistantMessage.content && shouldSpeak) {
-        speak(assistantMessage.content)
-      }
-
-    } catch (error) {
-      console.error('Send message error:', error)
-      setMessages(prev => [...prev, {
-        id: `error-${Date.now()}`,
-        role: 'assistant',
-        content: '⚠️ Erro ao buscar resposta.'
-      }])
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  const isLoading = status === 'streaming' || status === 'submitted'
 
 
   // Refs for Text Persistence
@@ -312,14 +211,6 @@ export default function VoicePage() {
             }
           } catch (e) {
             console.error("[Voice] Upload Error", e);
-            setMessages(prev => [...prev, {
-              id: Date.now().toString(),
-              role: 'assistant',
-              content: "⚠️ Erro ao enviar áudio.",
-              parts: []
-            } as any]);
-          } finally {
-            // Processing state is handled by useChat isLoading mostly, but STT is separate.
           }
         }
       }
@@ -354,12 +245,6 @@ export default function VoicePage() {
 
     } catch (err) {
       console.error("Error accessing microphone:", err)
-      setMessages(prev => [...prev, {
-        id: Date.now().toString(),
-        role: 'assistant',
-        content: "⚠️ Erro de Microfone. Verifique permissões.",
-        parts: []
-      } as any]);
       setIsListening(false)
       isListeningRef.current = false
     }
@@ -420,21 +305,13 @@ export default function VoicePage() {
 
     if (isVoice) {
       shouldResumeListeningRef.current = true;
+      shouldSpeakNextRef.current = true;
     }
 
     setInputText("")
 
-    // Use AI SDK sendMessage
     try {
-      console.log('[DEBUG] Calling sendMessage with:', textToSend, 'isVoice:', isVoice);
-      await sendMessage(
-        // @ts-ignore AI SDK v3 types are tricky
-        {
-          role: 'user',
-          content: textToSend
-        } as any,
-        { shouldSpeak: isVoice }
-      );
+      await sendMessage({ text: textToSend });
     } catch (e) {
       console.error("sendMessage failed:", e);
     }
@@ -487,7 +364,7 @@ export default function VoicePage() {
 
       {/* 🟢 Right Column - Chat Panel (30-35%) */}
       <section className="w-[40%] h-full border-l border-neutral-200 dark:border-white/5 bg-neutral-50/50 dark:bg-neutral-900/30 backdrop-blur-sm">
-        <ChatPanel messages={messages as any} /> {/* Cast to any if needed or fix ChatPanel props */}
+        <ChatPanel messages={messages} />
       </section>
 
     </main>

@@ -1,6 +1,6 @@
 /**
  * DRM Service — fetches commercial dashboard data from the external API.
- * Results are cached in-memory for 5 minutes to avoid repeated calls per conversation turn.
+ * Results are cached in-memory for 24 hours to avoid repeated calls.
  */
 
 const DRM_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -60,33 +60,6 @@ export interface DRMApiResponse {
     timestamp: string;
     summary: DRMSummary;
     data: DRMManager[];
-}
-
-// ─── Keywords that indicate the user is asking about DRM/commercial data ───────
-
-const DRM_KEYWORDS = [
-    // Explicit system references
-    'drm', 'dashboard comercial', 'api externa', 'dados comerciais',
-    // Financial KPIs
-    'meta', 'contratado', 'forecast', 'atingimento', 'gap', 'pipeline',
-    // Manager / team
-    'gerente', 'gerentes', 'carteira', 'carteiras', 'diretoria comercial',
-    // Project temperature
-    'quente', 'morno', 'frio',
-    // Quarters
-    'q1', 'q2', 'q3', 'q4', 'trimestre',
-    // CX / Visits
-    'customer experience', 'chamado', 'visita comercial', 'visitas',
-    // Common manager names referenced in the system
-    'bruno', 'paulo', 'barone', 'ju ferreira', 'juferreira',
-];
-
-/**
- * Returns true if the user message is likely asking for DRM commercial data.
- */
-export function isDRMRequest(text: string): boolean {
-    const lower = text.toLowerCase();
-    return DRM_KEYWORDS.some(k => lower.includes(k));
 }
 
 /**
@@ -236,19 +209,3 @@ ${managersBlock}
 `.trim();
 }
 
-/**
- * Main entry point: detect intent + fetch + format.
- * Returns an empty string if the query is not DRM-related.
- */
-export async function getDRMContext(userQuery: string): Promise<string> {
-    if (!isDRMRequest(userQuery)) return '';
-
-    console.log('[DRM Service] DRM intent detected, fetching data...');
-    try {
-        const drmData = await fetchDRMData();
-        return formatDRMContext(drmData, userQuery);
-    } catch (err) {
-        console.error('[DRM Service] Failed to fetch DRM data:', err);
-        return '\n\n[AVISO INTERNO: Não foi possível buscar os dados da DRM no momento. Informe ao usuário que os dados comerciais estão temporariamente indisponíveis.]\n\n';
-    }
-}

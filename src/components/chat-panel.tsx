@@ -1,6 +1,7 @@
 "use client"
 
 import { useRef, useEffect } from "react"
+import type { UIMessage } from "ai"
 import { cn } from "@/lib/utils"
 import { ProjectCard } from "./project-card"
 import { CalendarCard } from "./calendar-card"
@@ -8,16 +9,8 @@ import { DynamicChart } from "./gen-ui/dynamic-chart"
 import { RiskMatrix } from "./gen-ui/risk-matrix"
 import { NotionProject } from '@/lib/notion-service'
 
-// Local interface to avoid version conflicts
-interface Message {
-    id: string
-    role: string
-    content: string
-    toolInvocations?: any[]
-}
-
 interface ChatPanelProps {
-    messages: Message[]
+    messages: UIMessage[]
 }
 
 export function ChatPanel({ messages }: ChatPanelProps) {
@@ -35,38 +28,48 @@ export function ChatPanel({ messages }: ChatPanelProps) {
                 </div>
             )}
 
-            {messages.map((msg) => (
-                <div
-                    key={msg.id}
-                    className={cn(
-                        "flex w-full flex-col space-y-2",
-                        // Align user right, assistant left
-                        msg.role === 'user' ? "items-end" : "items-start"
-                    )}
-                >
-                    {/* Text Buffer with Bubble */}
-                    {(msg.content || !msg.toolInvocations) && (
-                        <div
-                            className={cn(
-                                "max-w-[80%] p-4 rounded-2xl shadow-sm text-sm md:text-base leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300",
-                                msg.role === 'user'
-                                    ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 rounded-tr-none px-4 py-2"
-                                    : "bg-white border border-neutral-200 text-neutral-800 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 rounded-tl-none"
-                            )}
-                        >
-                            {formatMessage(msg.content)}
-                        </div>
-                    )}
+            {messages.map((msg) => {
+                const textContent = msg.parts
+                    .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+                    .map(p => p.text)
+                    .join('')
 
-                    {/* Tool Invocations (Cards) */}
-                    {msg.toolInvocations?.map((toolInvocation) => {
-                        const { toolName, toolCallId, state } = toolInvocation;
+                const toolParts = msg.parts.filter(
+                    (p): p is Extract<typeof p, { toolCallId: string }> =>
+                        p.type !== 'text' && p.type !== 'step-start' && 'toolCallId' in p
+                )
 
-                        // Only render if result is available
-                        if (state === 'result') {
-                            const { result } = toolInvocation;
+                return (
+                    <div
+                        key={msg.id}
+                        className={cn(
+                            "flex w-full flex-col space-y-2",
+                            msg.role === 'user' ? "items-end" : "items-start"
+                        )}
+                    >
+                        {/* Text Bubble */}
+                        {(textContent || toolParts.length === 0) && (
+                            <div
+                                className={cn(
+                                    "max-w-[80%] p-4 rounded-2xl shadow-sm text-sm md:text-base leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300",
+                                    msg.role === 'user'
+                                        ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 rounded-tr-none px-4 py-2"
+                                        : "bg-white border border-neutral-200 text-neutral-800 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 rounded-tl-none"
+                                )}
+                            >
+                                {formatMessage(textContent)}
+                            </div>
+                        )}
 
-                            if (toolName === 'searchProjects' || toolName === 'getOverdueProjects') { // getOverdueProjects might not be its own tool but just in case
+                        {/* Tool Results (Cards) */}
+                        {toolParts.map((part: any) => {
+                            const toolName = part.toolName ?? part.type?.replace('tool-', '')
+                            const { toolCallId } = part
+
+                            if (part.state !== 'output-available') return null
+                            const result = part.output
+
+                            if (toolName === 'searchProjects') {
                                 const projects = Array.isArray(result) ? result : [];
                                 return (
                                     <div key={toolCallId} className="w-full max-w-2xl space-y-2 animate-in fade-in slide-in-from-bottom-2">
@@ -87,10 +90,7 @@ export function ChatPanel({ messages }: ChatPanelProps) {
                                 );
                             }
 
-                            if (toolName === 'createProject') {
-                                // Maybe render a success card? For now just rely on text confirmation.
-                                return null;
-                            }
+                            if (toolName === 'createProject') return null;
 
                             if (toolName === 'analyzeProjects') {
                                 const { type, data, title } = result;
@@ -107,12 +107,12 @@ export function ChatPanel({ messages }: ChatPanelProps) {
                                     </div>
                                 )
                             }
-                        }
 
-                        return null; // Don't show anything for 'call' state (loading) unless we want a spinner
-                    })}
-                </div>
-            ))}
+                            return null;
+                        })}
+                    </div>
+                )
+            })}
             <div ref={bottomRef} className="h-4" />
         </div>
     )

@@ -1,56 +1,16 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/db';
 import { waitUntil } from '@vercel/functions';
-import { GraphCalendarAdapter } from '@jarvis/adapters/src/ms-graph';
 import { saveMemory, saveDocument, getMemoryContext, canStoreMemory } from '@/lib/memory-service';
-import { JarvisIntelligence } from '@/lib/jarvis-intelligence';
 import { reminderTask } from '@/trigger/reminder';
 import { SpeechClient } from '@google-cloud/speech';
-
-// ─── Calendar context ─────────────────────────────────────────────────────────
-
-async function getCalendarContext(messages: any[]) {
-  if (!messages || messages.length === 0) return "";
-
-  const lastMessage = messages[messages.length - 1].content.toLowerCase();
-  const hasKeywords = ["agenda", "calendário", "reunião", "compromissos", "meeting", "evento"].some(k => lastMessage.includes(k));
-  const mentionsName = ["tiago", "danielle", "dani", "gercino", "neto"].some(k => lastMessage.includes(k));
-
-  if (hasKeywords || mentionsName) {
-    console.log("[Evolution Webhook] Detecting calendar intent, fetching data...");
-    try {
-      const adapter = new GraphCalendarAdapter();
-      const configEmails = (process.env.GRAPH_USER_EMAILS || "").split(',').filter(Boolean);
-      let targetEmails = configEmails;
-
-      if (lastMessage.includes('tiago')) targetEmails = ['tiagoluz@prodam.sp.gov.br'];
-      else if (lastMessage.includes('danielle') || lastMessage.includes('dani')) targetEmails = ['danielleoliveira@prodam.sp.gov.br'];
-      else if (lastMessage.includes('gercino') || lastMessage.includes('neto')) targetEmails = ['gercinoneto@prodam.sp.gov.br'];
-
-      const results = await adapter.getEventsForUsers(targetEmails);
-      const eventsText = results.map(r => {
-        if (r.error) return `- ${r.user}: Erro ao buscar dados.`;
-        if (!r.events || r.events.length === 0) return `- ${r.user}: Sem compromissos encontrados para os próximos 7 dias.`;
-        return `- ${r.user}:\n  ` + r.events.map((e: any) => {
-          const eventDate = new Date(e.start.dateTime).toLocaleString('pt-BR', {
-            timeZone: 'America/Sao_Paulo',
-            weekday: 'long',
-            day: '2-digit',
-            month: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit'
-          });
-          return `* ${e.subject} (${eventDate}) - Local: ${e.location?.displayName || 'N/A'}`;
-        }).join('\n  ');
-      }).join('\n');
-
-      return `\n\nINFORMAÇÕES DE CALENDÁRIO (USE ISSO PARA RESPONDER):\n${eventsText}\n\n`;
-    } catch (e) {
-      console.error("Calendar fetch failed:", e);
-    }
-  }
-  return "";
-}
+import { generateText, stepCountIs } from 'ai';
+import { getModel } from '@/lib/ai-provider';
+import { getWhatsAppSystemPrompt } from '@/lib/system-prompts';
+import {
+    searchProjects, getCalendarEvents, createProject,
+    getProjectDetails, getDRMData, analyzeProjects
+} from '@/app/api/chat/tools';
 
 // ─── Evolution API config ─────────────────────────────────────────────────────
 
@@ -161,213 +121,6 @@ async function processPdf(phone: string, messageKey: any, messageData: any, file
   } catch (e: any) {
     console.error(`[PDF] ❌ Erro ao processar "${filename}":`, e);
     await enviarAvisoWhatsApp(phone, `❌ Erro ao processar o PDF: ${e.message}`);
-  }
-}
-
-// ─── Fast-path: Agenda ────────────────────────────────────────────────────────
-
-const NOTION_KEYWORDS = ['projeto', 'projetos', 'notion', 'tarefa', 'tarefas', 'atrasado', 'atrasados', 'prazo', 'prazos', 'entrega', 'entregas', 'risco', 'roi', 'urgência', 'urgencia', 'importância', 'importancia', 'criar projeto', 'criar tarefa', 'quantos projeto'];
-
-function isNotionQuery(text: string): boolean {
-  const lower = text.toLowerCase();
-  return NOTION_KEYWORDS.some(k => lower.includes(k));
-}
-
-function formatNotionForWhatsApp(result: { type: string; data: any[]; summary: string; details?: string }): string {
-  const { type, data, summary, details } = result;
-
-  // Sem resultados
-  if (type !== 'OVERDUE' && type !== 'DEADLINE' && data.length === 0) {
-    return `🔍 ${summary}`;
-  }
-
-  // Contagem / listagem geral (LIST retorna muitos projetos)
-  if (data.length > 10) {
-    let msg = `📊 Você tem *${data.length} projetos* no Notion.\n\n`;
-    msg += `Aqui estão os primeiros 10:\n`;
-    data.slice(0, 10).forEach((p, i) => {
-      const icon = p.status === 'Concluído' ? '✅' : '🚧';
-      msg += `${i + 1}. ${icon} *${p.title}* — ${p.status}\n`;
-    });
-    msg += `\n_...e mais ${data.length - 10} projetos._\n`;
-    msg += `\nPosso filtrar por status, urgência, risco ou prazo. É só pedir!`;
-    return msg;
-  }
-
-  // Lista pequena (busca/filtro)
-  if ((type === 'SEARCH' || type === 'FILTER') && data.length > 0) {
-    let msg = `📋 *${summary}*\n\n`;
-    data.forEach((p, i) => {
-      const icon = p.status === 'Concluído' ? '✅' : '🚧';
-      msg += `${i + 1}. ${icon} *${p.title}*`;
-      if (p.status) msg += ` — ${p.status}`;
-      if (p.deadline) msg += `\n   📅 ${p.deadline}`;
-      msg += '\n';
-    });
-    return msg.trim();
-  }
-
-  // Atrasados
-  if (type === 'OVERDUE') {
-    if (data.length === 0) return '✅ Nenhum projeto atrasado no momento!';
-    let msg = `⚠️ *${data.length} projeto${data.length > 1 ? 's' : ''} atrasado${data.length > 1 ? 's' : ''}:*\n\n`;
-    data.slice(0, 10).forEach((p, i) => {
-      msg += `${i + 1}. *${p.title}*`;
-      if (p.deadline) msg += ` — venceu em ${p.deadline}`;
-      msg += '\n';
-    });
-    if (data.length > 10) msg += `\n_...e mais ${data.length - 10}_`;
-    return msg;
-  }
-
-  // Prazos próximos
-  if (type === 'DEADLINE') {
-    if (data.length === 0) return '📅 Nenhum prazo próximo nos próximos 14 dias.';
-    let msg = `📅 *${data.length} entrega${data.length > 1 ? 's' : ''} próxima${data.length > 1 ? 's' : ''}:*\n\n`;
-    data.forEach((p, i) => {
-      msg += `${i + 1}. *${p.title}* — ${p.deadline}\n`;
-    });
-    return msg;
-  }
-
-  // Detalhes de um projeto
-  if (type === 'DETAILS' && data[0]) {
-    const p = data[0];
-    let msg = `📄 *${p.title}*\n`;
-    if (p.status) msg += `Status: ${p.status}\n`;
-    if (p.importance && p.importance !== 'N/A') msg += `Importância: ${p.importance}\n`;
-    if (p.risk && p.risk !== 'N/A') msg += `Risco: ${p.risk}\n`;
-    if (p.deadline) msg += `Prazo: ${p.deadline}\n`;
-    if (details) msg += `\n${details}`;
-    return msg;
-  }
-
-  return summary;
-}
-
-const AGENDA_KEYWORDS = ['agenda', 'calendário', 'calendario', 'reunião', 'reuniao', 'compromisso', 'meeting', 'evento'];
-const PEOPLE_MAP: Record<string, string> = {
-  tiago: 'tiagoluz@prodam.sp.gov.br',
-  danielle: 'danielleoliveira@prodam.sp.gov.br',
-  dani: 'danielleoliveira@prodam.sp.gov.br',
-  gercino: 'gercinoneto@prodam.sp.gov.br',
-  neto: 'gercinoneto@prodam.sp.gov.br',
-};
-
-function isAgendaQuery(text: string): boolean {
-  const lower = text.toLowerCase();
-  return AGENDA_KEYWORDS.some(k => lower.includes(k));
-}
-
-async function handleAgendaQuery(phone: string, text: string): Promise<void> {
-  const lower = text.toLowerCase();
-
-  // Detecta para qual pessoa a pergunta é
-  let targetEmails = (process.env.GRAPH_USER_EMAILS || '').split(',').filter(Boolean);
-  let personName = 'todos';
-  for (const [name, email] of Object.entries(PEOPLE_MAP)) {
-    if (lower.includes(name)) {
-      targetEmails = [email];
-      personName = name.charAt(0).toUpperCase() + name.slice(1);
-      break;
-    }
-  }
-
-  await enviarAvisoWhatsApp(phone, `📅 Buscando agenda de *${personName}*...`);
-
-  try {
-    const adapter = new GraphCalendarAdapter();
-    const results = await adapter.getEventsForUsers(targetEmails);
-
-    const messages: string[] = [];
-
-    results.forEach(r => {
-      const firstName = r.user.split('@')[0].split('.')[0];
-      const displayName = firstName.charAt(0).toUpperCase() + firstName.slice(1);
-
-      if (r.error) {
-        messages.push(`❌ Erro ao buscar agenda de ${displayName}.`);
-        return;
-      }
-      if (!r.events || r.events.length === 0) {
-        messages.push(`✅ *${displayName}* não tem compromissos nos próximos 7 dias.`);
-        return;
-      }
-
-      // Agrupa por dia
-      const grouped: Record<string, string[]> = {};
-      const sorted = [...r.events].sort((a: any, b: any) =>
-        new Date(a.start.dateTime).getTime() - new Date(b.start.dateTime).getTime()
-      );
-
-      sorted.forEach((e: any) => {
-        const dt = new Date(e.start.dateTime);
-
-        // Formata dia: "Seg, 17/03"
-        const diaSemana = dt.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'short' })
-          .replace('.', '').replace(/^\w/, c => c.toUpperCase());
-        const diaMes = dt.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit' });
-        const dayKey = `${diaSemana}, ${diaMes}`;
-
-        const hora = dt.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
-
-        // Extrai link de reunião online
-        let meetingUrl = e.onlineMeetingUrl || '';
-
-        // Tenta extrair URL da string de localização (ex: "Sala; https://meet.google.com/xxx")
-        if (!meetingUrl) {
-          const locRaw = e.location?.displayName || '';
-          const urlMatch = locRaw.match(/https?:\/\/[^\s;,]+/);
-          if (urlMatch) meetingUrl = urlMatch[0];
-        }
-
-        // Localização física limpa (ignora endereços longos e URLs)
-        let localFisico = '';
-        const locRaw = e.location?.displayName || '';
-        if (locRaw && !locRaw.includes('http') && locRaw.length < 50) {
-          // Só mostra se não for URL e não for endereço gigante
-          if (!locRaw.match(/,.*,.*,/)) { // ignora strings com 3+ vírgulas (endereço completo)
-            localFisico = locRaw;
-          }
-        }
-
-        // Monta linha do evento
-        let line = `🕐 *${hora}* — ${e.subject}`;
-        if (localFisico && !meetingUrl) {
-          line += `\n    📍 ${localFisico}`;
-        }
-        if (meetingUrl) {
-          // Encurta URL do Teams que são gigantes
-          if (meetingUrl.includes('teams.microsoft.com')) {
-            line += `\n    📹 Teams: ${meetingUrl}`;
-          } else if (meetingUrl.includes('meet.google.com')) {
-            line += `\n    📹 Meet: ${meetingUrl}`;
-          } else {
-            line += `\n    🔗 ${meetingUrl}`;
-          }
-        }
-
-        if (!grouped[dayKey]) grouped[dayKey] = [];
-        grouped[dayKey].push(line);
-      });
-
-      // Monta mensagem por dia (uma mensagem por dia para não ficar gigante)
-      let header = `📆 *Agenda de ${displayName} — próximos 7 dias*\n`;
-      let fullReport = header;
-
-      for (const [day, events] of Object.entries(grouped)) {
-        fullReport += `\n*${day}*\n${events.join('\n')}\n`;
-      }
-
-      messages.push(fullReport.trim());
-    });
-
-    // Envia tudo numa mensagem só
-    await enviarAvisoWhatsApp(phone, messages.join('\n\n'));
-
-  } catch (err) {
-    console.error('[Agenda Fast-Path] Erro:', err);
-    await enviarAvisoWhatsApp(phone, '❌ Não consegui buscar a agenda agora. Tente novamente.');
   }
 }
 
@@ -547,12 +300,6 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
       }
     }
 
-    // ── Fast-path: Agenda (Graph API direto, sem LLM) ─────────────────────────
-    if (isAgendaQuery(text)) {
-      await handleAgendaQuery(phone, text);
-      return;
-    }
-
     // ── Intent de lembrete ────────────────────────────────────────────────────
     if (REMINDER_REGEX.test(text)) {
       const parsed = await parseReminder(text);
@@ -617,57 +364,31 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
       .eq('phone', phone)
       .order('created_at', { ascending: false })
       .limit(10);
-    const messages = (rawHistory ?? []).reverse().map((m: { role: string; content: string }) => ({ role: m.role, content: m.content }));
+    const messages = (rawHistory ?? []).reverse().map((m: { role: string; content: string }) => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+    }));
 
     // Busca contexto de memória isolado por owner (phone do usuário ou JID do grupo)
     const memoryContext = await getMemoryContext(text, phone);
 
-    // ── Fast-path: Notion (resposta direta com dados reais, sem passar pelo LLM) ─
-    if (isNotionQuery(text)) {
-      try {
-        console.log('[Evolution Webhook] Notion intent detected, fetching real data...');
-        const result = await JarvisIntelligence.processQuery(text);
-
-        if (result.type !== 'CHIT_CHAT') {
-          const notionReply = formatNotionForWhatsApp(result);
-          await supabase.from('chats').insert({ phone, role: 'assistant', content: notionReply, created_at: Date.now() });
-          await enviarAvisoWhatsApp(phone, notionReply);
-          return;
-        }
-      } catch (e) {
-        console.error('[Evolution Webhook] Notion fetch failed:', e);
-        // fall through to LLM
-      }
-    }
-
-    // Chama LLM
-    const endpoint = process.env.AZURE_OPENAI_ENDPOINT || "https://oia-gercinotest.openai.azure.com/";
-    const deployment = process.env.AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-4.1-mini";
-    const apiKey = process.env.AZURE_OPENAI_API_KEY;
-    const apiVersion = process.env.AZURE_OPENAI_API_VERSION || "2025-01-01-preview";
-    const azureUrl = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`;
-
-    const systemPrompt = `You are Rex, a highly advanced AI Assistant available on WhatsApp. Be warm, concise and helpful.
-FORMATTING RULES FOR WHATSAPP:
-- Use *asterisks* for bold text instead of markdown double-asterisks (e.g., *bold*).
-- Use _underscores_ for italic text (e.g., _italic_).
-- Do not use markdown headers (#) or markdown links [text](url).
-- Keep responses short, as users are reading on a mobile device.
-CURRENT BRAZIL DATE/TIME: ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}${memoryContext}`;
-
-    const response = await fetch(azureUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "api-key": apiKey || "" },
-      body: JSON.stringify({
-        messages: [{ role: "system", content: systemPrompt }, ...messages],
-        stream: false
-      })
+    // ── LLM com tools (o modelo decide qual ferramenta chamar) ─────────────
+    const result = await generateText({
+      model: getModel(),
+      system: getWhatsAppSystemPrompt(memoryContext),
+      messages,
+      tools: {
+        searchProjects,
+        getCalendarEvents,
+        createProject,
+        getProjectDetails,
+        getDRMData,
+        analyzeProjects,
+      },
+      stopWhen: stepCountIs(5),
     });
 
-    if (!response.ok) throw new Error(`Azure AI Error: ${await response.text()}`);
-
-    const data = await response.json();
-    const assistantContent = data.choices?.[0]?.message?.content || "Desculpe, tive um problema ao processar sua resposta.";
+    const assistantContent = result.text || "Desculpe, tive um problema ao processar sua resposta.";
 
     await supabase.from('chats').insert({ phone, role: 'assistant', content: assistantContent, created_at: Date.now() });
     await enviarAvisoWhatsApp(phone, assistantContent);

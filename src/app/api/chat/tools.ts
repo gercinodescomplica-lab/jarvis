@@ -237,3 +237,36 @@ export const analyzeProjects = tool({
         };
     }
 });
+
+export const createReminder = tool({
+    description: 'Create a reminder for the user. Use when the user asks to be reminded about something at a specific time or date.',
+    inputSchema: jsonSchema<{ message: string; remindAt: string }>({
+        type: 'object',
+        properties: {
+            message: { type: 'string', description: 'What to remind the user about' },
+            remindAt: { type: 'string', description: 'ISO 8601 datetime for when to send the reminder (use America/Sao_Paulo timezone, e.g. 2026-03-20T15:00:00-03:00)' },
+        },
+        required: ['message', 'remindAt'],
+        additionalProperties: false,
+    }),
+    execute: async ({ message, remindAt }) => {
+        console.log(`[Tool] Creating Reminder: "${message}" at ${remindAt}`);
+        try {
+            const { ReminderService } = await import('@/lib/reminder-service');
+            const { TelegramConfigService } = await import('@/lib/telegram-config');
+            const when = new Date(remindAt);
+            if (isNaN(when.getTime())) return { error: 'Data inválida' };
+            const chatId = TelegramConfigService.getChatId() || '';
+            await ReminderService.create(message, when, chatId);
+            const timeStr = when.toLocaleString('pt-BR', {
+                timeZone: 'America/Sao_Paulo',
+                weekday: 'long', day: '2-digit', month: '2-digit',
+                hour: '2-digit', minute: '2-digit',
+            });
+            return { success: true, message, remindAt: timeStr };
+        } catch (err: any) {
+            console.error('[Tool] createReminder error:', err);
+            return { error: err.message || 'Falha ao criar lembrete.' };
+        }
+    }
+});
