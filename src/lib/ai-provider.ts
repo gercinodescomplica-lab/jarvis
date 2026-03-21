@@ -1,13 +1,11 @@
-import { createAzure } from '@ai-sdk/azure';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
 
-export const azure = createAzure({
-    apiKey: process.env.AZURE_OPENAI_API_KEY,
-    baseURL: process.env.AZURE_OPENAI_ENDPOINT,
-    apiVersion: process.env.AZURE_OPENAI_API_VERSION || '2025-01-01-preview',
+const google = createGoogleGenerativeAI({
+    apiKey: process.env.GEMINI_API_KEY,
 });
 
-const deploymentName = process.env.AZURE_OPENAI_DEPLOYMENT_NAME || 'gpt-4.1-mini';
+const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
 export function getModel() {
-    return azure(deploymentName);
+    return google(modelName);
 }

@@ -3,9 +3,8 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 // gemini-embedding-001: suporta outputDimensionality, usando 768 para compatibilidade com Turso
 export const EMBEDDING_DIMENSIONS = 768;
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-
 export async function generateEmbedding(text: string): Promise<number[]> {
+  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
   const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
   const result = await model.embedContent({
     content: { parts: [{ text: text.slice(0, 2000) }], role: 'user' },

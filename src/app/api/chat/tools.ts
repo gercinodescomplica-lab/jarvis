@@ -3,15 +3,16 @@ import { NotionService } from '@/lib/notion-service';
 import { CalendarDB } from '@/lib/calendar-db';
 import { GraphCalendarAdapter } from '@jarvis/adapters/src/ms-graph';
 import { fetchDRMData, formatDRMContext } from '@/lib/drm-service';
+import { supabase } from '@/db';
 
 export const searchProjects = tool({
-    description: 'Search for projects or tasks in Notion by keyword, status (e.g. "atrasado"), or urgency.',
+    description: 'Search for projects or tasks in Notion. Use query="*" or query="todos" to list ALL projects. Use specific keywords to filter by name, status, urgency, etc.',
     inputSchema: jsonSchema<{ query: string }>({
         type: 'object',
         properties: {
             query: {
                 type: 'string',
-                description: 'The search query, project name, or filter (e.g. "urgente", "atrasado").'
+                description: 'The search query. Use "*" or "todos" to list all projects. Or filter by keyword, status (e.g. "atrasado"), urgency, etc.'
             }
         },
         required: ['query'],
@@ -19,14 +20,25 @@ export const searchProjects = tool({
     }),
     execute: async ({ query }) => {
         console.log(`[Tool] Searching Projects: "${query}"`);
-        if (query.toLowerCase().includes('atrasad')) {
+        const lq = query.toLowerCase().trim();
+        // Lista tudo quando a query é genérica
+        if (!lq || lq === '*' || lq === 'todos' || lq === 'all' || lq === 'tudo' || lq === 'todos projetos' || lq === 'listar') {
+            const all = await NotionService.getAllProjects();
+            return all.slice(0, 30);
+        }
+        if (lq.includes('atrasad')) {
             return await NotionService.getOverdueProjects();
         }
-        if (query.toLowerCase().includes('prazo') || query.toLowerCase().includes('entrega')) {
+        if (lq.includes('prazo') || lq.includes('entrega')) {
             return await NotionService.getUpcomingDeadlines();
         }
         const results = await NotionService.searchProjects(query);
-        return results.slice(0, 10);
+        // Se não achou nada com o filtro, retorna todos
+        if (results.length === 0) {
+            const all = await NotionService.getAllProjects();
+            return all.slice(0, 30);
+        }
+        return results.slice(0, 15);
     },
 });
 
@@ -267,6 +279,71 @@ export const createReminder = tool({
         } catch (err: any) {
             console.error('[Tool] createReminder error:', err);
             return { error: err.message || 'Falha ao criar lembrete.' };
+        }
+    }
+});
+
+export const searchDocuments = tool({
+    description: `Busca em documentos e PDFs que foram enviados e salvos na base de conhecimento.
+Use SEMPRE que o usuário perguntar sobre conteúdo de documentos, relatórios, PDFs, ou qualquer arquivo enviado (ex: GRI, relatório, contrato, manual).
+Exemplos: "o que é GRI?", "o que diz o relatório X?", "me fala sobre o documento Y".`,
+    inputSchema: jsonSchema<{ query: string }>({
+        type: 'object',
+        properties: {
+            query: {
+                type: 'string',
+                description: 'Termos a buscar no conteúdo dos documentos. Use palavras-chave relevantes.'
+            }
+        },
+        required: ['query'],
+        additionalProperties: false,
+    }),
+    execute: async ({ query }) => {
+        console.log(`[Tool] searchDocuments: "${query}"`);
+        try {
+            const terms = query.toLowerCase().split(/\s+/).filter(t => t.length > 2);
+            const ilikeFilter = terms.map(t => `content.ilike.%${t}%`).join(',');
+
+            const { data: chunks, error } = await supabase
+                .from('document_chunks')
+                .select('content, document_title')
+                .or(ilikeFilter)
+                .limit(8);
+
+            if (error) throw error;
+
+            if (!chunks || chunks.length === 0) {
+                // Tenta buscar só pelo nome do documento
+                const { data: docs } = await supabase
+                    .from('documents')
+                    .select('filename, description')
+                    .or(terms.map(t => `description.ilike.%${t}%,filename.ilike.%${t}%`).join(','))
+                    .limit(5);
+
+                if (!docs || docs.length === 0) {
+                    return { found: false, message: 'Nenhum documento encontrado com esses termos.' };
+                }
+                return { found: true, documents: docs, chunks: [] };
+            }
+
+            // Agrupa por documento
+            const grouped: Record<string, string[]> = {};
+            for (const c of chunks) {
+                const title = c.document_title || 'Sem título';
+                if (!grouped[title]) grouped[title] = [];
+                grouped[title].push(c.content);
+            }
+
+            return {
+                found: true,
+                results: Object.entries(grouped).map(([title, contents]) => ({
+                    document: title,
+                    excerpts: contents.slice(0, 3),
+                })),
+            };
+        } catch (err: any) {
+            console.error('[Tool] searchDocuments error:', err);
+            return { error: err.message };
         }
     }
 });

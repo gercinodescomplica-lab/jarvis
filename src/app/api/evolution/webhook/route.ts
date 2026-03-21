@@ -9,7 +9,7 @@ import { getModel } from '@/lib/ai-provider';
 import { getWhatsAppSystemPrompt } from '@/lib/system-prompts';
 import {
     searchProjects, getCalendarEvents, createProject,
-    getProjectDetails, getDRMData, analyzeProjects
+    getProjectDetails, getDRMData, analyzeProjects, searchDocuments
 } from '@/app/api/chat/tools';
 
 // ─── Evolution API config ─────────────────────────────────────────────────────
@@ -159,27 +159,12 @@ async function transcribeAudio(buffer: Buffer, mimetype: string): Promise<string
 
 async function inferSubjectFromText(text: string): Promise<string> {
   try {
-    const endpoint = process.env.AZURE_OPENAI_ENDPOINT || 'https://oia-gercinotest.openai.azure.com/';
-    const deployment = process.env.AZURE_OPENAI_DEPLOYMENT_NAME || 'gpt-4.1-mini';
-    const apiKey = process.env.AZURE_OPENAI_API_KEY;
-    const apiVersion = process.env.AZURE_OPENAI_API_VERSION || '2025-01-01-preview';
-    const azureUrl = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`;
-
-    const response = await fetch(azureUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'api-key': apiKey || '' },
-      body: JSON.stringify({
-        messages: [
-          { role: 'system', content: 'Gere um titulo curto (3-5 palavras) em portugues para o seguinte conteudo. Responda APENAS com o titulo, sem pontuacao.' },
-          { role: 'user', content: text.slice(0, 500) },
-        ],
-        stream: false,
-      }),
+    const result = await generateText({
+      model: getModel(),
+      system: 'Gere um titulo curto (3-5 palavras) em portugues para o seguinte conteudo. Responda APENAS com o titulo, sem pontuacao.',
+      messages: [{ role: 'user', content: text.slice(0, 500) }],
     });
-
-    if (!response.ok) return 'Audio';
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content?.trim() || 'Audio';
+    return result.text?.trim() || 'Audio';
   } catch {
     return 'Audio';
   }
@@ -218,20 +203,10 @@ const REMINDER_REGEX = /me\s+lemb(?:re|ra|rar|retes?)\s*(?:d[ae]?\s+)?|lembrete[
 async function parseReminder(text: string): Promise<{ what: string; when: Date } | null> {
   const nowBRT = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'full', timeStyle: 'short' });
 
-  const endpoint = process.env.AZURE_OPENAI_ENDPOINT || 'https://oia-gercinotest.openai.azure.com/';
-  const deployment = process.env.AZURE_OPENAI_DEPLOYMENT_NAME || 'gpt-4.1-mini';
-  const apiKey = process.env.AZURE_OPENAI_API_KEY;
-  const apiVersion = process.env.AZURE_OPENAI_API_VERSION || '2025-01-01-preview';
-  const azureUrl = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`;
-
-  const response = await fetch(azureUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'api-key': apiKey || '' },
-    body: JSON.stringify({
-      messages: [
-        {
-          role: 'system',
-          content: `Extraia o lembrete da mensagem. Data/hora atual em Brasilia: ${nowBRT}.
+  try {
+    const result = await generateText({
+      model: getModel(),
+      system: `Extraia o lembrete da mensagem. Data/hora atual em Brasilia: ${nowBRT}.
 Retorne um JSON com:
 - "what": o que deve ser lembrado (texto limpo, sem "me lembre de", etc.)
 - "when": data e hora em formato ISO 8601 com timezone -03:00
@@ -242,25 +217,20 @@ Regras:
 - Sempre inclua o timezone -03:00 no "when"
 
 Responda APENAS com JSON valido, sem markdown.`,
-        },
-        { role: 'user', content: text },
-      ],
-      response_format: { type: 'json_object' },
-      stream: false,
-    }),
-  });
+      messages: [{ role: 'user', content: text }],
+    });
 
-  if (!response.ok) return null;
+    const parsed = JSON.parse(result.text || '{}');
 
-  const data = await response.json();
-  const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}');
+    if (!parsed.what || !parsed.when) return null;
 
-  if (!parsed.what || !parsed.when) return null;
+    const when = new Date(parsed.when);
+    if (isNaN(when.getTime()) || when <= new Date()) return null;
 
-  const when = new Date(parsed.when);
-  if (isNaN(when.getTime()) || when <= new Date()) return null;
-
-  return { what: parsed.what, when };
+    return { what: parsed.what, when };
+  } catch {
+    return null;
+  }
 }
 
 // ─── Processamento de mensagem normal ─────────────────────────────────────────
@@ -384,6 +354,7 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
         getProjectDetails,
         getDRMData,
         analyzeProjects,
+        searchDocuments,
       },
       stopWhen: stepCountIs(5),
     });

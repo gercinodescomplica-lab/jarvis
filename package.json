@@ -19,13 +19,13 @@
     "test:pdf": "tsx scripts/test-pdf.ts"
   },
   "resolutions": {
-    "postcss": "^8.4.31"
+    "next/postcss": "^8.4.31"
   },
   "dependencies": {
-    "@ai-sdk/azure": "^3.0.34",
+    "@ai-sdk/google": "^3.0.52",
     "@ai-sdk/openai": "^3.0.18",
     "@ai-sdk/react": "^3.0.51",
-    "@azure/identity": "^4.13.0",
+    "@azure/identity": "^4.13.1",
     "@google-cloud/speech": "^7.3.0",
     "@google-cloud/text-to-speech": "^6.4.0",
     "@google/generative-ai": "^0.24.1",

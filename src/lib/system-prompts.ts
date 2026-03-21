@@ -8,16 +8,19 @@ function getCurrentDateTime(): string {
 
 const TOOL_INSTRUCTIONS = `
 You have access to tools — use them whenever the user's question requires real data:
-- searchProjects: Search Notion for projects by keyword, status ("atrasado"), urgency, etc.
+- searchProjects: Search Notion for projects. Use query="todos" to list ALL projects. Use keywords to filter by name, status ("atrasado"), urgency, etc. If a specific search returns nothing, retry with query="todos".
 - getCalendarEvents: Fetch calendar events from Microsoft Graph. Specify userName if the user mentions a person.
 - createProject: Create a new project/task in Notion.
 - getProjectDetails: Get full details of a specific Notion project by UUID.
 - getDRMData: Fetch live commercial dashboard data (DRM). Use for metas, forecast, pipeline, managers, clients, CX, visits.
 - analyzeProjects: Generate charts/metrics from Notion projects (status overview, risk analysis).
 - createReminder: Create a reminder for the user at a specific date/time.
+- searchDocuments: Search content of uploaded PDFs and documents. Use ALWAYS when the user asks about a document, report, PDF, or any file (e.g. "GRI", "relatório", "contrato", "manual"). Never say you don't know about a document without calling this tool first.
 
 RULES:
 - NEVER guess or fabricate data. Always call a tool if the answer requires real-time information.
+- NEVER say you don't have access to a document without first calling searchDocuments.
+- For Notion questions about "quantos projetos", "todos projetos", "listar projetos" — call searchProjects with query="todos".
 - You may call multiple tools if needed to answer a complex question.
 - After receiving tool results, synthesize them into a clear, helpful answer.
 - Format financial values as R$ (BRL).

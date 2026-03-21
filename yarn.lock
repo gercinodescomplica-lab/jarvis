@@ -2,15 +2,6 @@
 # yarn lockfile v1
 
 
-"@ai-sdk/azure@^3.0.34":
-  version "3.0.34"
-  resolved "https://registry.npmjs.org/@ai-sdk/azure/-/azure-3.0.34.tgz"
-  integrity sha512-nnOFtgvZYOa6XIeAm18i56NX77Yu4Bd+Tnbt85LGUEqwJFR54kFTlR1nm3BAJCphHrmQteJd1P3QErtyoXig8A==
-  dependencies:
-    "@ai-sdk/openai" "3.0.33"
-    "@ai-sdk/provider" "3.0.8"
-    "@ai-sdk/provider-utils" "4.0.15"
-
 "@ai-sdk/gateway@3.0.52":
   version "3.0.52"
   resolved "https://registry.npmjs.org/@ai-sdk/gateway/-/gateway-3.0.52.tgz"
@@ -29,7 +20,15 @@
     "@ai-sdk/provider-utils" "4.0.15"
     "@vercel/oidc" "3.1.0"
 
-"@ai-sdk/openai@^3.0.18", "@ai-sdk/openai@3.0.33":
+"@ai-sdk/google@^3.0.52":
+  version "3.0.52"
+  resolved "https://registry.npmjs.org/@ai-sdk/google/-/google-3.0.52.tgz"
+  integrity sha512-HiFB4VlHnv55k9xIbgQW9tHw5OsLXzbAghnDUqrnk/S94QpQuyrDwLSDsk/tUkxJeT00B+wvhL1y6/SARdLeXw==
+  dependencies:
+    "@ai-sdk/provider" "3.0.8"
+    "@ai-sdk/provider-utils" "4.0.21"
+
+"@ai-sdk/openai@^3.0.18":
   version "3.0.33"
   resolved "https://registry.npmjs.org/@ai-sdk/openai/-/openai-3.0.33.tgz"
   integrity sha512-O/8SVKAiwFHkGAUfBnrLb7L2IjbpP9ySWbmOktOfa0KtzutZkmKNrJ5CtB5dj+lwuENbOuZeRsnsZdOjar7hig==
@@ -41,6 +40,15 @@
   version "4.0.15"
   resolved "https://registry.npmjs.org/@ai-sdk/provider-utils/-/provider-utils-4.0.15.tgz"
   integrity sha512-8XiKWbemmCbvNN0CLR9u3PQiet4gtEVIrX4zzLxnCj06AwsEDJwJVBbKrEI4t6qE8XRSIvU2irka0dcpziKW6w==
+  dependencies:
+    "@ai-sdk/provider" "3.0.8"
+    "@standard-schema/spec" "^1.1.0"
+    eventsource-parser "^3.0.6"
+
+"@ai-sdk/provider-utils@4.0.21":
+  version "4.0.21"
+  resolved "https://registry.npmjs.org/@ai-sdk/provider-utils/-/provider-utils-4.0.21.tgz"
+  integrity sha512-MtFUYI1/8mgDvRmaBDjbLJPFFrMG777AvSgyIFQtZHIMzm88R/12vYBBpnk7pfiWLFE1DSZzY4WDYzGbKAcmiw==
   dependencies:
     "@ai-sdk/provider" "3.0.8"
     "@standard-schema/spec" "^1.1.0"
@@ -126,10 +134,10 @@
     "@typespec/ts-http-runtime" "^0.3.0"
     tslib "^2.6.2"
 
-"@azure/identity@^4.13.0":
-  version "4.13.0"
-  resolved "https://registry.npmjs.org/@azure/identity/-/identity-4.13.0.tgz"
-  integrity sha512-uWC0fssc+hs1TGGVkkghiaFkkS7NkTxfnCH+Hdg+yTehTpMcehpok4PgUKKdyCH+9ldu6FhiHRv84Ntqj1vVcw==
+"@azure/identity@^4.13.1":
+  version "4.13.1"
+  resolved "https://registry.npmjs.org/@azure/identity/-/identity-4.13.1.tgz"
+  integrity sha512-5C/2WD5Vb1lHnZS16dNQRPMjN6oV/Upba+C9nBIs15PmOi6A3ZGs4Lr2u60zw4S04gi+u3cEXiqTVP7M4Pz3kw==
   dependencies:
     "@azure/abort-controller" "^2.0.0"
     "@azure/core-auth" "^1.9.0"
@@ -138,8 +146,8 @@
     "@azure/core-tracing" "^1.0.0"
     "@azure/core-util" "^1.11.0"
     "@azure/logger" "^1.0.0"
-    "@azure/msal-browser" "^4.2.0"
-    "@azure/msal-node" "^3.5.0"
+    "@azure/msal-browser" "^5.5.0"
+    "@azure/msal-node" "^5.1.0"
     open "^10.1.0"
     tslib "^2.2.0"
 
@@ -151,24 +159,24 @@
     "@typespec/ts-http-runtime" "^0.3.0"
     tslib "^2.6.2"
 
-"@azure/msal-browser@^4.2.0":
-  version "4.28.2"
-  resolved "https://registry.npmjs.org/@azure/msal-browser/-/msal-browser-4.28.2.tgz"
-  integrity sha512-6vYUMvs6kJxJgxaCmHn/F8VxjLHNh7i9wzfwPGf8kyBJ8Gg2yvBXx175Uev8LdrD1F5C4o7qHa2CC4IrhGE1XQ==
+"@azure/msal-browser@^5.5.0":
+  version "5.6.1"
+  resolved "https://registry.npmjs.org/@azure/msal-browser/-/msal-browser-5.6.1.tgz"
+  integrity sha512-Ylmp8yngH7YRLV5mA1aF4CNS6WsJTPbVXaA0Tb1x1Gv/J3BM3hE4Q7nDaf7dRfU00FcxDBBudTjqlpH74ZSsgw==
   dependencies:
-    "@azure/msal-common" "15.14.2"
+    "@azure/msal-common" "16.4.0"
 
-"@azure/msal-common@15.14.2":
-  version "15.14.2"
-  resolved "https://registry.npmjs.org/@azure/msal-common/-/msal-common-15.14.2.tgz"
-  integrity sha512-n8RBJEUmd5QotoqbZfd+eGBkzuFI1KX6jw2b3WcpSyGjwmzoeI/Jb99opIBPHpb8y312NB+B6+FGi2ZVSR8yfA==
+"@azure/msal-common@16.4.0":
+  version "16.4.0"
+  resolved "https://registry.npmjs.org/@azure/msal-common/-/msal-common-16.4.0.tgz"
+  integrity sha512-twXt09PYtj1PffNNIAzQlrBd0DS91cdA6i1gAfzJ6BnPM4xNk5k9q/5xna7jLIjU3Jnp0slKYtucshGM8OGNAw==
 
-"@azure/msal-node@^3.5.0":
-  version "3.8.7"
-  resolved "https://registry.npmjs.org/@azure/msal-node/-/msal-node-3.8.7.tgz"
-  integrity sha512-a+Xnrae+uwLnlw68bplS1X4kuJ9F/7K6afuMFyRkNIskhjgDezl5Fhrx+1pmAlDmC0VaaAxjRQMp1OmcqVwkIg==
+"@azure/msal-node@^5.1.0":
+  version "5.1.1"
+  resolved "https://registry.npmjs.org/@azure/msal-node/-/msal-node-5.1.1.tgz"
+  integrity sha512-71grXU6+5hl+3CL3joOxlj/AW6rmhthuTlG0fRqsTrhPArQBpZuUFzCIlKOGdcafLUa/i1hBdV78ZxJdlvRA+g==
   dependencies:
-    "@azure/msal-common" "15.14.2"
+    "@azure/msal-common" "16.4.0"
     jsonwebtoken "^9.0.0"
     uuid "^8.3.0"
 

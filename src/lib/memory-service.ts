@@ -59,7 +59,12 @@ export async function saveMemory(content: string, phone: string, source: 'pdf' |
 }
 
 export async function searchMemories(query: string, owner: string, limit = 5): Promise<string[]> {
-  const embedding = await generateEmbedding(query);
+  let embedding: number[];
+  try {
+    embedding = await generateEmbedding(query);
+  } catch {
+    return []; // embedding indisponível (ex: chave Gemini inválida)
+  }
 
   const { data, error } = await supabase.rpc('search_memories', {
     query_embedding: embedding,
@@ -160,7 +165,12 @@ export async function saveDocument(
 }
 
 export async function searchDocuments(query: string, owner: string, limit = 5): Promise<string[]> {
-  const embedding = await generateEmbedding(query);
+  let embedding: number[];
+  try {
+    embedding = await generateEmbedding(query);
+  } catch {
+    return []; // embedding indisponível
+  }
 
   const { data, error } = await supabase.rpc('search_document_chunks', {
     query_embedding: embedding,
@@ -197,8 +207,7 @@ export async function getMemoryContext(query: string, owner: string): Promise<st
     if (parts.length === 0) return '';
 
     return `\n\n${parts.join('\n\n')}\n\n`;
-  } catch (e) {
-    console.error('[Memory] Falha ao buscar contexto:', e);
+  } catch {
     return '';
   }
 }
