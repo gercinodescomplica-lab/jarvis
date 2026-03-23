@@ -296,6 +296,42 @@ export class NotionService {
     }
 
     /**
+     * Searches across all pages and databases in the Notion workspace.
+     */
+    static async searchAll(query: string): Promise<{ id: string; title: string; type: string; url: string }[]> {
+        try {
+            const response = await notion.search({
+                query,
+                page_size: 20,
+                filter: { value: 'page', property: 'object' },
+            });
+
+            const databasesResponse = await notion.search({
+                query,
+                page_size: 10,
+                filter: { value: 'database', property: 'object' },
+            });
+
+            const allResults = [...response.results, ...databasesResponse.results];
+
+            return allResults.map((item: any) => {
+                let title = 'Sem título';
+                if (item.object === 'page') {
+                    const titleProp = item.properties?.title || item.properties?.Name || item.properties?.Projeto;
+                    if (titleProp?.title?.[0]?.plain_text) title = titleProp.title[0].plain_text;
+                    else if (item.title?.[0]?.plain_text) title = item.title[0].plain_text;
+                } else if (item.object === 'database') {
+                    title = item.title?.[0]?.plain_text || 'Database sem título';
+                }
+                return { id: item.id, title, type: item.object, url: item.url };
+            });
+        } catch (error) {
+            console.error('[NotionService] searchAll error:', error);
+            return [];
+        }
+    }
+
+    /**
      * Fetches all unique project titles to serve as a vocabulary for the AI.
      * Cached for performance in JarvisIntelligence.
      */

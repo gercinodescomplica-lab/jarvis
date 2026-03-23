@@ -272,6 +272,26 @@ Exemplos: "o que é GRI?", "o que diz o relatório X?", "me fala sobre o documen
     }
 });
 
+export const searchNotion = cachedTool({
+    name: 'searchNotion',
+    cacheTtlMs: 3 * 60 * 1000, // 3 minutos
+    description: `Busca em todo o workspace do Notion (páginas, databases, notas, documentos).
+Use quando o usuário perguntar sobre qualquer conteúdo no Notion que não seja especificamente o banco de projetos DRM.
+Exemplos: "quantas páginas tenho no notion?", "tem algo sobre X no notion?", "encontra a página Y".`,
+    inputSchema: jsonSchema<{ query: string }>({
+        type: 'object',
+        properties: {
+            query: { type: 'string', description: 'Termo a buscar no Notion. Use "*" ou "" para listar tudo.' }
+        },
+        required: ['query'],
+        additionalProperties: false,
+    }),
+    execute: async ({ query }) => {
+        const results = await NotionService.searchAll(query || '');
+        return { count: results.length, results };
+    },
+});
+
 // ─── Tools SEM CACHE (escrita) ───────────────────────────────────────────────
 // Operações que criam/modificam dados nunca devem ser cacheadas.
 

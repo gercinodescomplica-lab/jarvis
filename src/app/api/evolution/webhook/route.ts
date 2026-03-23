@@ -9,7 +9,7 @@ import { getModel } from '@/lib/ai-provider';
 import { getWhatsAppSystemPrompt } from '@/lib/system-prompts';
 import {
     searchProjects, getCalendarEvents, createProject,
-    getProjectDetails, getDRMData, analyzeProjects, searchDocuments
+    getProjectDetails, getDRMData, analyzeProjects, searchDocuments, searchNotion
 } from '@/app/api/chat/tools';
 
 // ─── Evolution API config ─────────────────────────────────────────────────────
@@ -363,6 +363,7 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
       messages,
       tools: {
         searchProjects,
+        searchNotion,
         getCalendarEvents,
         createProject,
         getProjectDetails,
