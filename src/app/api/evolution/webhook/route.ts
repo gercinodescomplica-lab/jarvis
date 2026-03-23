@@ -228,9 +228,11 @@ Responda APENAS com JSON valido, sem markdown.`,
       messages: [{ role: 'user', content: text }],
     });
 
-    const parsed = JSON.parse(result.text || '{}');
+    const raw = (result.text || '').replace(/```json\n?|```/g, '').trim();
+    console.log('[parseReminder] LLM raw:', raw);
+    const parsed = JSON.parse(raw || '{}');
 
-    if (!parsed.what || !parsed.when) return null;
+    if (!parsed.what?.trim() || !parsed.when) return null;
 
     const when = new Date(parsed.when);
     if (isNaN(when.getTime()) || when <= new Date()) return null;
@@ -285,10 +287,9 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
         const isGroup = phone.includes('@g.us');
         const resolvedSenderPhone = senderPhone || phone.replace(/@.+/, '').replace(/\D/g, '');
 
-        await reminderTask.trigger(
-          { senderPhone: resolvedSenderPhone, jid: phone, isGroup, reminder: parsed.what },
-          { delay: parsed.when }
-        );
+        const reminderPayload = { senderPhone: resolvedSenderPhone, jid: phone, isGroup, reminder: parsed.what.trim() };
+        console.log('[Reminder] Triggering with payload:', JSON.stringify(reminderPayload), 'delay:', parsed.when);
+        await reminderTask.trigger(reminderPayload, { delay: parsed.when });
 
         const whenStr = parsed.when.toLocaleString('pt-BR', {
           timeZone: 'America/Sao_Paulo',
