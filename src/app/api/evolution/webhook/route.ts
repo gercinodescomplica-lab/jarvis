@@ -209,20 +209,23 @@ async function processAudio(phone: string, messageKey: Record<string, unknown>, 
 const REMINDER_REGEX = /me\s+lemb(?:re|ra|rar|retes?)\s*(?:d[ae]?\s+)?|lembrete[:\s]+|me\s+avis[ae]\s*(?:d[ae]\s+)?|n(?:ao|ão)\s+(?:me\s+)?(?:deixa|deixe)\s+(?:eu\s+)?esquecer|lembr(?:a|e|ar)\s+d[ae]\s+|quero\s+(?:um\s+)?lembrete/i;
 
 async function parseReminder(text: string): Promise<{ what: string; when: Date } | null> {
-  const nowBRT = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'full', timeStyle: 'short' });
+  // Passa o timestamp Unix atual para o LLM evitar ambiguidade de timezone
+  const nowUtcMs = Date.now();
+  const nowBRT = new Date(nowUtcMs).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'full', timeStyle: 'short' });
 
   try {
     const result = await generateText({
       model: getModel(),
-      system: `Extraia o lembrete da mensagem. Data/hora atual em Brasilia: ${nowBRT}.
+      system: `Extraia o lembrete da mensagem. Data/hora atual em Brasilia (UTC-3): ${nowBRT} (Unix timestamp: ${nowUtcMs}ms).
 Retorne um JSON com:
 - "what": o que deve ser lembrado (texto limpo, sem "me lembre de", etc.)
-- "when": data e hora em formato ISO 8601 com timezone -03:00
+- "whenMs": timestamp Unix em milliseconds do momento em que o lembrete deve disparar
 
 Regras:
-- Se nao houver data/hora especificada, retorne null em "when"
-- Interprete "amanha", "proxima semana", "daqui a X minutos/horas" corretamente
-- Sempre inclua o timezone -03:00 no "when"
+- Se nao houver data/hora especificada, retorne null em "whenMs"
+- Interprete "amanha", "proxima semana", "daqui a X minutos/horas" corretamente usando o Unix timestamp fornecido
+- "daqui a 2 minutos" = ${nowUtcMs} + 120000
+- Sempre retorne "whenMs" como numero inteiro
 
 Responda APENAS com JSON valido, sem markdown.`,
       messages: [{ role: 'user', content: text }],
@@ -232,10 +235,11 @@ Responda APENAS com JSON valido, sem markdown.`,
     console.log('[parseReminder] LLM raw:', raw);
     const parsed = JSON.parse(raw || '{}');
 
-    if (!parsed.what?.trim() || !parsed.when) return null;
+    if (!parsed.what?.trim() || !parsed.whenMs) return null;
 
-    const when = new Date(parsed.when);
-    if (isNaN(when.getTime()) || when <= new Date()) return null;
+    const when = new Date(Number(parsed.whenMs));
+    console.log('[parseReminder] when:', when.toISOString(), 'now:', new Date().toISOString(), 'diff:', when.getTime() - Date.now(), 'ms');
+    if (isNaN(when.getTime()) || when.getTime() <= Date.now()) return null;
 
     return { what: parsed.what, when };
   } catch {
@@ -288,9 +292,8 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
         const resolvedSenderPhone = senderPhone || phone.replace(/@.+/, '').replace(/\D/g, '');
 
         const reminderPayload = { senderPhone: resolvedSenderPhone, jid: phone, isGroup, reminder: parsed.what.trim() };
-        const delayMs = parsed.when.getTime() - Date.now();
-        console.log('[Reminder] Triggering with payload:', JSON.stringify(reminderPayload), 'delayMs:', delayMs, 'at:', parsed.when.toISOString());
-        const run = await reminderTask.trigger(reminderPayload, { delay: delayMs });
+        console.log('[Reminder] Triggering with payload:', JSON.stringify(reminderPayload), 'at:', parsed.when.toISOString());
+        const run = await reminderTask.trigger(reminderPayload, { delay: parsed.when });
         console.log('[Reminder] Run criado:', run.id);
 
         const whenStr = parsed.when.toLocaleString('pt-BR', {
