@@ -288,8 +288,10 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
         const resolvedSenderPhone = senderPhone || phone.replace(/@.+/, '').replace(/\D/g, '');
 
         const reminderPayload = { senderPhone: resolvedSenderPhone, jid: phone, isGroup, reminder: parsed.what.trim() };
-        console.log('[Reminder] Triggering with payload:', JSON.stringify(reminderPayload), 'delay:', parsed.when);
-        await reminderTask.trigger(reminderPayload, { delay: parsed.when });
+        const delayMs = parsed.when.getTime() - Date.now();
+        console.log('[Reminder] Triggering with payload:', JSON.stringify(reminderPayload), 'delayMs:', delayMs, 'at:', parsed.when.toISOString());
+        const run = await reminderTask.trigger(reminderPayload, { delay: delayMs });
+        console.log('[Reminder] Run criado:', run.id);
 
         const whenStr = parsed.when.toLocaleString('pt-BR', {
           timeZone: 'America/Sao_Paulo',
