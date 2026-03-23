@@ -97,7 +97,17 @@ export async function saveDocument(
   console.log(`[PDF] 📄 Extraindo texto...`);
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const pdfParse = require('pdf-parse') as (buffer: Buffer) => Promise<{ text: string; numpages: number }>;
-  const parsed = await pdfParse(pdfBuffer);
+  let parsed: { text: string; numpages: number };
+  try {
+    parsed = await pdfParse(pdfBuffer);
+  } catch (parseErr: any) {
+    const msg = String(parseErr?.message || parseErr);
+    console.error(`[PDF] ❌ Falha ao parsear "${filename}":`, msg);
+    if (msg.includes('XRef') || msg.includes('FormatError') || msg.includes('Invalid PDF')) {
+      throw new Error('O PDF parece estar corrompido ou em formato inválido. Tente reenviar o arquivo original.');
+    }
+    throw new Error('Não foi possível ler o PDF. Verifique se o arquivo não está protegido por senha ou danificado.');
+  }
   const text = parsed.text;
 
   if (!text || text.trim().length < 10) {
