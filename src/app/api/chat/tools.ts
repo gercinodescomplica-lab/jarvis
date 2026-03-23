@@ -1,11 +1,17 @@
 import { tool, jsonSchema } from 'ai';
+import { cachedTool } from '@/lib/tool-middleware';
 import { NotionService } from '@/lib/notion-service';
 import { CalendarDB } from '@/lib/calendar-db';
 import { GraphCalendarAdapter } from '@jarvis/adapters/src/ms-graph';
 import { fetchDRMData, formatDRMContext } from '@/lib/drm-service';
 import { supabase } from '@/db';
 
-export const searchProjects = tool({
+// ─── Tools com CACHE (leitura) ───────────────────────────────────────────────
+// Cada uma tem um TTL diferente baseado em quão rápido os dados mudam.
+
+export const searchProjects = cachedTool({
+    name: 'searchProjects',
+    cacheTtlMs: 5 * 60 * 1000, // 5 minutos — projetos mudam moderadamente
     description: 'Search for projects or tasks in Notion. Use query="*" or query="todos" to list ALL projects. Use specific keywords to filter by name, status, urgency, etc.',
     inputSchema: jsonSchema<{ query: string }>({
         type: 'object',
@@ -19,9 +25,7 @@ export const searchProjects = tool({
         additionalProperties: false,
     }),
     execute: async ({ query }) => {
-        console.log(`[Tool] Searching Projects: "${query}"`);
         const lq = query.toLowerCase().trim();
-        // Lista tudo quando a query é genérica
         if (!lq || lq === '*' || lq === 'todos' || lq === 'all' || lq === 'tudo' || lq === 'todos projetos' || lq === 'listar') {
             const all = await NotionService.getAllProjects();
             return all.slice(0, 30);
@@ -33,7 +37,6 @@ export const searchProjects = tool({
             return await NotionService.getUpcomingDeadlines();
         }
         const results = await NotionService.searchProjects(query);
-        // Se não achou nada com o filtro, retorna todos
         if (results.length === 0) {
             const all = await NotionService.getAllProjects();
             return all.slice(0, 30);
@@ -42,7 +45,9 @@ export const searchProjects = tool({
     },
 });
 
-export const getCalendarEvents = tool({
+export const getCalendarEvents = cachedTool({
+    name: 'getCalendarEvents',
+    cacheTtlMs: 5 * 60 * 1000, // 5 minutos — agenda muda moderadamente
     description: 'Get upcoming calendar events and meetings from Microsoft Graph. You can specify a user email or name. Users available: tiagoluz@prodam.sp.gov.br (Tiago), danielleoliveira@prodam.sp.gov.br (Danielle), gercinoneto@prodam.sp.gov.br (Gercino).',
     inputSchema: jsonSchema<{ days?: number, userName?: string }>({
         type: 'object',
@@ -59,8 +64,6 @@ export const getCalendarEvents = tool({
         additionalProperties: false,
     }),
     execute: async ({ days = 7, userName }) => {
-        console.log(`[Tool] Fetching Calendar for ${userName || 'all'} for next ${days} days`);
-
         try {
             const adapter = new GraphCalendarAdapter();
             const configEmails = process.env.GRAPH_USER_EMAILS?.split(',') || [];
@@ -76,11 +79,8 @@ export const getCalendarEvents = tool({
             }
 
             const results = await adapter.getEventsForUsers(targetEmails);
-
-            // Flatten results for the UI (CalendarCard expects an array of events)
             const allEvents = results.flatMap(r => r.events || []);
 
-            // Fallback to local DB if no events found in Graph
             if (allEvents.length === 0) {
                 const start = new Date();
                 start.setHours(0, 0, 0, 0);
@@ -101,41 +101,9 @@ export const getCalendarEvents = tool({
     },
 });
 
-export const createProject = tool({
-    description: 'Create a new project or task in Notion.',
-    inputSchema: jsonSchema<{
-        title: string;
-        importance?: 'Alta' | 'Média' | 'Baixa';
-        urgency?: 'Alta' | 'Média' | 'Baixa';
-        deadline?: string;
-        risk?: 'Alto' | 'Médio' | 'Baixo';
-    }>({
-        type: 'object',
-        properties: {
-            title: { type: 'string', description: 'Title of the task/project' },
-            importance: { type: 'string', enum: ['Alta', 'Média', 'Baixa'] },
-            urgency: { type: 'string', enum: ['Alta', 'Média', 'Baixa'] },
-            deadline: { type: 'string', description: 'ISO Date string YYYY-MM-DD' },
-            risk: { type: 'string', enum: ['Alto', 'Médio', 'Baixo'] },
-        },
-        required: ['title'],
-        additionalProperties: false,
-    }),
-    execute: async (data: any) => {
-        console.log(`[Tool] Creating Project:`, data);
-        const payload = {
-            ...data,
-            importance: data.importance || 'Média',
-            urgency: data.urgency || 'Média',
-            risk: data.risk || 'Baixo'
-        };
-        const id = await NotionService.createProject(payload);
-        if (!id) return { error: "Failed to create project" };
-        return { success: true, id, url: `https://notion.so/${id.replace(/-/g, "")}`, ...payload };
-    }
-});
-
-export const getProjectDetails = tool({
+export const getProjectDetails = cachedTool({
+    name: 'getProjectDetails',
+    cacheTtlMs: 10 * 60 * 1000, // 10 minutos — detalhes de um projeto mudam pouco
     description: 'Get detailed content/blocks of a specific project.',
     inputSchema: jsonSchema<{ id: string }>({
         type: 'object',
@@ -146,13 +114,14 @@ export const getProjectDetails = tool({
         additionalProperties: false,
     }),
     execute: async ({ id }) => {
-        console.log(`[Tool] Getting Details for: ${id}`);
         const details = await NotionService.getProjectDetails(id);
         return { details };
     }
 });
 
-export const getDRMData = tool({
+export const getDRMData = cachedTool({
+    name: 'getDRMData',
+    cacheTtlMs: 30 * 60 * 1000, // 30 minutos — dados comerciais mudam pouco durante o dia
     description: `Busca dados comerciais em tempo real do Dashboard DRM (Diretoria Regional de Mercado).
 Use esta ferramenta SEMPRE que o usuário perguntar sobre:
 - Metas, contratado, forecast ou atingimento (geral ou de um gerente específico)
@@ -178,25 +147,21 @@ Use esta ferramenta SEMPRE que o usuário perguntar sobre:
         additionalProperties: false,
     }),
     execute: async ({ query, managerName }) => {
-        console.log(`[Tool] getDRMData — query: "${query}", manager: "${managerName || 'all'}"`);
-        try {
-            const drmData = await fetchDRMData();
-            const effectiveQuery = managerName ? `${query} ${managerName}` : query;
-            return {
-                success: true,
-                context: formatDRMContext(drmData, effectiveQuery),
-                summary: drmData.summary,
-                managersCount: drmData.data.length,
-                timestamp: drmData.timestamp,
-            };
-        } catch (err: any) {
-            console.error('[Tool] getDRMData error:', err);
-            return { success: false, error: err.message || 'Falha ao buscar dados da DRM.' };
-        }
+        const drmData = await fetchDRMData();
+        const effectiveQuery = managerName ? `${query} ${managerName}` : query;
+        return {
+            success: true,
+            context: formatDRMContext(drmData, effectiveQuery),
+            summary: drmData.summary,
+            managersCount: drmData.data.length,
+            timestamp: drmData.timestamp,
+        };
     }
 });
 
-export const analyzeProjects = tool({
+export const analyzeProjects = cachedTool({
+    name: 'analyzeProjects',
+    cacheTtlMs: 5 * 60 * 1000, // 5 minutos
     description: 'Analyze project data to generate metrics, charts, or comparisons. queries: "status overview", "risk analysis", "urgency matrix".',
     inputSchema: jsonSchema<{ dimension: string, chartType?: string }>({
         type: 'object',
@@ -209,10 +174,8 @@ export const analyzeProjects = tool({
     }),
     execute: async ({ dimension, chartType }) => {
         const safeChartType = chartType || 'bar';
-        console.log(`[Tool] Analyzing Projects by ${dimension} (${safeChartType})`);
         const projects = await NotionService.getAllProjects();
 
-        // Aggregation Logic
         if (safeChartType === 'scatter') {
             const mapScore = (str: string) => {
                 const s = str?.toLowerCase() || '';
@@ -250,6 +213,102 @@ export const analyzeProjects = tool({
     }
 });
 
+export const searchDocuments = cachedTool({
+    name: 'searchDocuments',
+    cacheTtlMs: 10 * 60 * 1000, // 10 minutos — documentos salvos mudam raramente
+    description: `Busca em documentos e PDFs que foram enviados e salvos na base de conhecimento.
+Use SEMPRE que o usuário perguntar sobre conteúdo de documentos, relatórios, PDFs, ou qualquer arquivo enviado (ex: GRI, relatório, contrato, manual).
+Exemplos: "o que é GRI?", "o que diz o relatório X?", "me fala sobre o documento Y".`,
+    inputSchema: jsonSchema<{ query: string }>({
+        type: 'object',
+        properties: {
+            query: {
+                type: 'string',
+                description: 'Termos a buscar no conteúdo dos documentos. Use palavras-chave relevantes.'
+            }
+        },
+        required: ['query'],
+        additionalProperties: false,
+    }),
+    execute: async ({ query }) => {
+        const terms = query.toLowerCase().split(/\s+/).filter((t: string) => t.length > 2);
+        const ilikeFilter = terms.map((t: string) => `content.ilike.%${t}%`).join(',');
+
+        const { data: chunks, error } = await supabase
+            .from('document_chunks')
+            .select('content, document_title')
+            .or(ilikeFilter)
+            .limit(8);
+
+        if (error) throw error;
+
+        if (!chunks || chunks.length === 0) {
+            const { data: docs } = await supabase
+                .from('documents')
+                .select('filename, description')
+                .or(terms.map((t: string) => `description.ilike.%${t}%,filename.ilike.%${t}%`).join(','))
+                .limit(5);
+
+            if (!docs || docs.length === 0) {
+                return { found: false, message: 'Nenhum documento encontrado com esses termos.' };
+            }
+            return { found: true, documents: docs, chunks: [] };
+        }
+
+        const grouped: Record<string, string[]> = {};
+        for (const c of chunks) {
+            const title = c.document_title || 'Sem título';
+            if (!grouped[title]) grouped[title] = [];
+            grouped[title].push(c.content);
+        }
+
+        return {
+            found: true,
+            results: Object.entries(grouped).map(([title, contents]) => ({
+                document: title,
+                excerpts: contents.slice(0, 3),
+            })),
+        };
+    }
+});
+
+// ─── Tools SEM CACHE (escrita) ───────────────────────────────────────────────
+// Operações que criam/modificam dados nunca devem ser cacheadas.
+
+export const createProject = tool({
+    description: 'Create a new project or task in Notion.',
+    inputSchema: jsonSchema<{
+        title: string;
+        importance?: 'Alta' | 'Média' | 'Baixa';
+        urgency?: 'Alta' | 'Média' | 'Baixa';
+        deadline?: string;
+        risk?: 'Alto' | 'Médio' | 'Baixo';
+    }>({
+        type: 'object',
+        properties: {
+            title: { type: 'string', description: 'Title of the task/project' },
+            importance: { type: 'string', enum: ['Alta', 'Média', 'Baixa'] },
+            urgency: { type: 'string', enum: ['Alta', 'Média', 'Baixa'] },
+            deadline: { type: 'string', description: 'ISO Date string YYYY-MM-DD' },
+            risk: { type: 'string', enum: ['Alto', 'Médio', 'Baixo'] },
+        },
+        required: ['title'],
+        additionalProperties: false,
+    }),
+    execute: async (data: any) => {
+        console.log(`[Tool] Creating Project:`, data);
+        const payload = {
+            ...data,
+            importance: data.importance || 'Média',
+            urgency: data.urgency || 'Média',
+            risk: data.risk || 'Baixo'
+        };
+        const id = await NotionService.createProject(payload);
+        if (!id) return { error: "Failed to create project" };
+        return { success: true, id, url: `https://notion.so/${id.replace(/-/g, "")}`, ...payload };
+    }
+});
+
 export const createReminder = tool({
     description: 'Create a reminder for the user. Use when the user asks to be reminded about something at a specific time or date.',
     inputSchema: jsonSchema<{ message: string; remindAt: string }>({
@@ -279,71 +338,6 @@ export const createReminder = tool({
         } catch (err: any) {
             console.error('[Tool] createReminder error:', err);
             return { error: err.message || 'Falha ao criar lembrete.' };
-        }
-    }
-});
-
-export const searchDocuments = tool({
-    description: `Busca em documentos e PDFs que foram enviados e salvos na base de conhecimento.
-Use SEMPRE que o usuário perguntar sobre conteúdo de documentos, relatórios, PDFs, ou qualquer arquivo enviado (ex: GRI, relatório, contrato, manual).
-Exemplos: "o que é GRI?", "o que diz o relatório X?", "me fala sobre o documento Y".`,
-    inputSchema: jsonSchema<{ query: string }>({
-        type: 'object',
-        properties: {
-            query: {
-                type: 'string',
-                description: 'Termos a buscar no conteúdo dos documentos. Use palavras-chave relevantes.'
-            }
-        },
-        required: ['query'],
-        additionalProperties: false,
-    }),
-    execute: async ({ query }) => {
-        console.log(`[Tool] searchDocuments: "${query}"`);
-        try {
-            const terms = query.toLowerCase().split(/\s+/).filter(t => t.length > 2);
-            const ilikeFilter = terms.map(t => `content.ilike.%${t}%`).join(',');
-
-            const { data: chunks, error } = await supabase
-                .from('document_chunks')
-                .select('content, document_title')
-                .or(ilikeFilter)
-                .limit(8);
-
-            if (error) throw error;
-
-            if (!chunks || chunks.length === 0) {
-                // Tenta buscar só pelo nome do documento
-                const { data: docs } = await supabase
-                    .from('documents')
-                    .select('filename, description')
-                    .or(terms.map(t => `description.ilike.%${t}%,filename.ilike.%${t}%`).join(','))
-                    .limit(5);
-
-                if (!docs || docs.length === 0) {
-                    return { found: false, message: 'Nenhum documento encontrado com esses termos.' };
-                }
-                return { found: true, documents: docs, chunks: [] };
-            }
-
-            // Agrupa por documento
-            const grouped: Record<string, string[]> = {};
-            for (const c of chunks) {
-                const title = c.document_title || 'Sem título';
-                if (!grouped[title]) grouped[title] = [];
-                grouped[title].push(c.content);
-            }
-
-            return {
-                found: true,
-                results: Object.entries(grouped).map(([title, contents]) => ({
-                    document: title,
-                    excerpts: contents.slice(0, 3),
-                })),
-            };
-        } catch (err: any) {
-            console.error('[Tool] searchDocuments error:', err);
-            return { error: err.message };
         }
     }
 });

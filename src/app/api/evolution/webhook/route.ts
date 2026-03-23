@@ -126,7 +126,15 @@ async function processPdf(phone: string, messageKey: any, messageData: any, file
 
 // ─── Processamento de áudio (STT via Google Cloud Speech) ─────────────────
 
-const speechClient = new SpeechClient({ keyFilename: 'google-credentials.json' });
+function getSpeechClient() {
+  const b64 = process.env.GOOGLE_CREDENTIALS_BASE64;
+  if (b64) {
+    const credentials = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+    return new SpeechClient({ credentials });
+  }
+  // fallback local
+  return new SpeechClient({ keyFilename: 'google-credentials.json' });
+}
 
 async function transcribeAudio(buffer: Buffer, mimetype: string): Promise<string> {
   let encoding: 'OGG_OPUS' | 'MP3' | 'WEBM_OPUS' | 'LINEAR16' = 'OGG_OPUS';
@@ -136,7 +144,7 @@ async function transcribeAudio(buffer: Buffer, mimetype: string): Promise<string
 
   console.log(`[STT] Transcrevendo ${(buffer.length / 1024).toFixed(1)} KB via Google Speech (${encoding})`);
 
-  const [response] = await speechClient.recognize({
+  const [response] = await getSpeechClient().recognize({
     audio: { content: buffer.toString('base64') },
     config: {
       encoding,
