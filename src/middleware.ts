@@ -16,7 +16,16 @@ export function middleware(request: NextRequest) {
 
   const token = searchParams.get('token');
   const storedToken = process.env.FRONTEND_ACCESS_TOKEN;
+  const adminToken = process.env.ADMIN_TOKEN;
   const cookieToken = request.cookies.get('frontend_token')?.value;
+  const adminCookieToken = request.cookies.get('admin_token')?.value;
+
+  // Admin routes: check admin cookie, redirect to login if missing
+  if (pathname.startsWith('/admin')) {
+    if (pathname === '/admin/login') return NextResponse.next();
+    if (adminCookieToken && adminCookieToken === adminToken) return NextResponse.next();
+    return NextResponse.redirect(new URL('/admin/login', request.url));
+  }
 
   // If token is in URL and correct
   if (token && token === storedToken) {

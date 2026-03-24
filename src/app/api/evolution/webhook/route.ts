@@ -9,7 +9,9 @@ import { getModel } from '@/lib/ai-provider';
 import { getWhatsAppSystemPrompt } from '@/lib/system-prompts';
 import {
     searchProjects, getCalendarEvents, createProject,
-    getProjectDetails, getDRMData, analyzeProjects, searchDocuments, searchNotion
+    getProjectDetails, getDRMData, analyzeProjects, searchDocuments, searchNotion, 
+    createMemoryTool, searchMemoriesTool, deleteMemoryTool,
+    listRemindersTool, cancelReminderTool, updateProjectStatusTool
 } from '@/app/api/chat/tools';
 
 // ─── Evolution API config ─────────────────────────────────────────────────────
@@ -208,7 +210,7 @@ async function processAudio(phone: string, messageKey: Record<string, unknown>, 
 
 const REMINDER_REGEX = /me\s+lemb(?:re|ra|rar|retes?)\s*(?:d[ae]?\s+)?|lembrete[:\s]+|me\s+avis[ae]\s*(?:d[ae]\s+)?|n(?:ao|ão)\s+(?:me\s+)?(?:deixa|deixe)\s+(?:eu\s+)?esquecer|lembr(?:a|e|ar)\s+d[ae]\s+|quero\s+(?:um\s+)?lembrete/i;
 
-async function parseReminder(text: string): Promise<{ what: string; when: Date } | null> {
+export async function parseReminder(text: string): Promise<{ what: string; when: Date } | null> {
   // Passa o timestamp Unix atual para o LLM evitar ambiguidade de timezone
   const nowUtcMs = Date.now();
   const nowBRT = new Date(nowUtcMs).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'full', timeStyle: 'short' });
@@ -356,6 +358,8 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
     // Busca contexto de memória isolado por owner (phone do usuário ou JID do grupo)
     const memoryContext = await getMemoryContext(text, phone);
 
+    const isAllowedToSaveMemory = await canStoreMemory(phone);
+
     // ── LLM com tools (o modelo decide qual ferramenta chamar) ─────────────
     const result = await generateText({
       model: getModel(),
@@ -370,6 +374,12 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
         getDRMData,
         analyzeProjects,
         searchDocuments,
+        saveMemory: createMemoryTool(phone, isAllowedToSaveMemory),
+        searchMemories: searchMemoriesTool(phone),
+        deleteMemory: deleteMemoryTool(phone, isAllowedToSaveMemory),
+        listReminders: listRemindersTool(phone),
+        cancelReminder: cancelReminderTool(phone),
+        updateProjectStatus: updateProjectStatusTool,
       },
       stopWhen: stepCountIs(5),
     });
@@ -416,7 +426,7 @@ function getPermissionsFromJson() {
   }
 }
 
-async function checkAuthorization(phone: string, isGroup: boolean, groupJid: string | null): Promise<boolean> {
+export async function checkAuthorization(phone: string, isGroup: boolean, groupJid: string | null): Promise<boolean> {
   // Grupos: usa apenas o JSON (grupos não têm phone individual)
   if (isGroup && groupJid) {
     const perms = getPermissionsFromJson();
@@ -438,7 +448,32 @@ async function checkAuthorization(phone: string, isGroup: boolean, groupJid: str
   }
 
   const perms = getPermissionsFromJson();
-  return !!Object.entries(perms.users || {}).find(([k]) => phone.includes(k));
+  return !!Object.entries(perms.users || {}).find(([k]) => {
+    const userK = k.replace(/\D/g, '');
+    const inPhone = phone.replace(/\D/g, '');
+    // Regex estrito para garantir que eh um formato valido e evitar matches acidentais
+    if (!/^\d{10,15}$/.test(inPhone)) return false;
+    return inPhone.includes(userK) && Math.abs(inPhone.length - userK.length) <= 2; // Validação mais estrita, aceitando DDI/DDD
+  });
+}
+
+// ─── Deduplicação e Rate Limit em Memoria (Serverless) ─────────────
+const processedMessageIds = new Set<string>();
+const userRateLimits = new Map<string, number[]>();
+
+function checkRateLimit(phone: string): boolean {
+  const now = Date.now();
+  const windowMs = 60 * 1000; // 1 min window
+  const limit = 10; // max messages per minute
+  
+  let times = userRateLimits.get(phone) || [];
+  times = times.filter(t => now - t < windowMs);
+  
+  if (times.length >= limit) return false;
+  
+  times.push(now);
+  userRateLimits.set(phone, times);
+  return true;
 }
 
 // ─── Webhook handler ──────────────────────────────────────────────────────────
@@ -457,6 +492,18 @@ export async function POST(req: Request) {
 
     if (key?.fromMe || key?.remoteJid?.includes('status@broadcast')) {
       return NextResponse.json({ status: 'ignored' });
+    }
+
+    const msgId = msgData?.key?.id || payload.data?.key?.id;
+
+    // W1: Deduplicação de mensagens em memória (evita duplicidade em Vercel retries simultâneos)
+    if (msgId) {
+      if (processedMessageIds.has(msgId)) return NextResponse.json({ status: 'ignored_duplicate' });
+      processedMessageIds.add(msgId);
+      if (processedMessageIds.size > 2000) {
+        const iter = processedMessageIds.values();
+        for (let i = 0; i < 500; i++) processedMessageIds.delete(iter.next().value!);
+      }
     }
 
     const phone = key?.remoteJidAlt || key?.remoteJid;
@@ -481,6 +528,11 @@ export async function POST(req: Request) {
       if (!authorized) {
         console.log(`[PDF] Número não autorizado: ${phone}`);
         return NextResponse.json({ status: 'unauthorized' });
+      }
+
+      if (Number(docMsg.fileLength) > 25 * 1024 * 1024) {
+        waitUntil(enviarAvisoWhatsApp(phone, '❌ O PDF enviado tem mais de 25MB e excede nosso limite atual. Por favor, envie um arquivo menor.'));
+        return NextResponse.json({ status: 'ignored_too_large' });
       }
 
       waitUntil(processPdf(phone, key, msgData, filename));
@@ -543,8 +595,35 @@ export async function POST(req: Request) {
     }
 
     if (authorized) {
+      // W2: Rate limiting por usuário
+      if (!isGroup && !checkRateLimit(phone)) {
+        console.warn(`[RateLimit] Bloqueado temporariamente: ${phone}`);
+        waitUntil(enviarAvisoWhatsApp(phone, '⏳ Você está enviando mensagens rápido demais. Por favor, aguarde um minuto e tente novamente.'));
+        return NextResponse.json({ status: 'rate_limited' });
+      }
+
+      // W7: Limpeza automática do histórico de chat (mantém < 30 dias)
+      waitUntil((async () => {
+        await supabase.from('chats').delete().lt('created_at', Date.now() - 30 * 24 * 60 * 60 * 1000);
+      })());
+
       // Remove menções (@Jarvis, @ninja, etc.) para checar easter eggs em grupos
       const cleanText = text.replace(/@\S+/g, '').trim();
+
+      // W4: Comando de Ajuda
+      if (cleanText.toLowerCase() === '/ajuda') {
+        const helpText = `*🤖 Jarvis — Interface de Ajuda*\n\n` +
+          `Aqui estão alguns dos comandos que você pode usar:\n` +
+          `• \`salva isso: [texto]\` — Salva a informação na minha memória permanente.\n` +
+          `• \`me lembra de [tarefa] amanhã às 15h\` — Crio um lembrete para você.\n` +
+          `• \`quando é minha reunião?\` — Checo a sua agenda via Microsoft Graph.\n` +
+          `• \`projetos atrasados\` — Listo projetos no Notion e mostro indicadores.\n` +
+          `• \`/ajuda\` — Mostra esta mensagem.\n\n` +
+          `Você também pode me enviar um arquivo PDF para eu indexar todo o texto dele!`;
+          
+        waitUntil(enviarAvisoWhatsApp(phone, helpText));
+        return NextResponse.json({ success: true });
+      }
 
       // ── Easter eggs ───────────────────────────────────────────────────────
       if (cleanText === '🦴') {

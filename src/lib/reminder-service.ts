@@ -34,6 +34,15 @@ export class ReminderService {
         await sql`update reminders set sent = true where id = ${id}`;
     }
 
+    static async getAll(): Promise<Reminder[]> {
+        const rows = await sql`select * from reminders order by remind_at desc`;
+        return rows.map((r: any) => this.map(r));
+    }
+
+    static async deleteById(id: string): Promise<void> {
+        await sql`delete from reminders where id = ${id}`;
+    }
+
     private static map(row: any): Reminder {
         return {
             id: row.id,

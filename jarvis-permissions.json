@@ -3,6 +3,10 @@
     "5511949633602": {
       "name": "Gercino",
       "permission": "can_store_memory"
+    },
+    "5516981317391": {
+      "name": "Nova usuária",
+      "permission": "all"
     }
   },
   "groups": {

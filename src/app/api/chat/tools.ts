@@ -5,6 +5,8 @@ import { CalendarDB } from '@/lib/calendar-db';
 import { GraphCalendarAdapter } from '@jarvis/adapters/src/ms-graph';
 import { fetchDRMData, formatDRMContext } from '@/lib/drm-service';
 import { supabase } from '@/db';
+import { saveMemory, getMemoryContext } from '@/lib/memory-service';
+import { configure, runs } from '@trigger.dev/sdk/v3';
 
 // ─── Tools com CACHE (leitura) ───────────────────────────────────────────────
 // Cada uma tem um TTL diferente baseado em quão rápido os dados mudam.
@@ -231,8 +233,10 @@ Exemplos: "o que é GRI?", "o que diz o relatório X?", "me fala sobre o documen
         additionalProperties: false,
     }),
     execute: async ({ query }) => {
+        // Sanitizing query to prevent ilike wildcards from being interpreted literally or causing errors
         const terms = query.toLowerCase().split(/\s+/).filter((t: string) => t.length > 2);
-        const ilikeFilter = terms.map((t: string) => `content.ilike.%${t}%`).join(',');
+        const safeTerms = terms.map((t: string) => t.replace(/[%_]/g, '\\$&')); 
+        const ilikeFilter = safeTerms.map((t: string) => `content.ilike.%${t}%`).join(',');
 
         const { data: chunks, error } = await supabase
             .from('document_chunks')
@@ -358,6 +362,157 @@ export const createReminder = tool({
         } catch (err: any) {
             console.error('[Tool] createReminder error:', err);
             return { error: err.message || 'Falha ao criar lembrete.' };
+        }
+    }
+});
+
+export const createMemoryTool = (phone: string, isAllowed: boolean) => tool({
+    description: 'Save important knowledge, rules, preferences, or summaries to the user\'s permanent memory in Supabase. Use this WHENEVER the user asks you to "remember", "save", "learn", or "gravitar" something important. You MUST use this tool to actually save the data.',
+    inputSchema: jsonSchema<{ title: string; content: string }>({
+        type: 'object',
+        properties: {
+            title: { type: 'string', description: 'A short subject or title for this memory (3-5 words)' },
+            content: { type: 'string', description: 'The detailed information to save' }
+        },
+        required: ['title', 'content'],
+        additionalProperties: false,
+    }),
+    execute: async ({ title, content }) => {
+        if (!isAllowed) {
+            return { error: 'O usuário não tem permissão para salvar memórias no sistema.' };
+        }
+        try {
+            await saveMemory(`[${title}] ${content}`, phone, 'message');
+            return { success: true, message: `Memória "${title}" salva com sucesso!` };
+        } catch (err: any) {
+            console.error('[Tool] saveMemory error:', err);
+            return { error: 'Falha ao salvar a memória no banco de dados.' };
+        }
+    }
+});
+
+export const searchMemoriesTool = (phone: string) => tool({
+    description: 'Puxa a lista de memórias e fatos que você já aprendeu sobre o usuário (Comando "O que você sabe sobre mim?").',
+    inputSchema: jsonSchema<{}>({
+        type: 'object',
+        properties: {},
+        additionalProperties: false,
+    }),
+    execute: async () => {
+        try {
+            const mems = await getMemoryContext('', phone);
+            if (!mems) return { result: 'Você ainda não possui nenhuma memória ou fato salvo sobre este usuário.' };
+            return { result: mems };
+        } catch {
+            return { error: 'Falha ao buscar memórias.' };
+        }
+    }
+});
+
+export const deleteMemoryTool = (phone: string, isAllowed: boolean) => tool({
+    description: 'Deleta uma memória específica do banco de dados (Comando "esquece tal assunto"). Use uma palavra-chave para buscar e deletar a memória correta.',
+    inputSchema: jsonSchema<{ search: string }>({
+        type: 'object',
+        properties: {
+            search: { type: 'string', description: 'Palavra-chave curta para encontrar a memória a ser deletada.' }
+        },
+        required: ['search'],
+        additionalProperties: false,
+    }),
+    execute: async ({ search }) => {
+        if (!isAllowed) return { error: 'O usuário não tem permissão para gerenciar memórias.' };
+        try {
+            const { data } = await supabase.from('memories').select('id, content').eq('phone', phone).ilike('content', `%${search}%`).limit(1);
+            if (!data || data.length === 0) return { error: `Nenhuma memória encontrada contendo "${search}".` };
+            await supabase.from('memories').delete().eq('id', data[0].id);
+            return { success: true, message: `Memória apagada: "${data[0].content}"` };
+        } catch {
+            return { error: 'Falha ao deletar memória.' };
+        }
+    }
+});
+
+export const updateProjectStatusTool = tool({
+    description: 'Atualiza o status de um projeto existente no Notion (Ex: "mudar o status de concluído", "mover projeto X para em andamento").',
+    inputSchema: jsonSchema<{ pageId: string, status: string }>({
+        type: 'object',
+        properties: {
+            pageId: { type: 'string', description: 'O ID do projeto (UUID do Notion)' },
+            status: { type: 'string', description: 'O novo status. Valores comuns: "Não iniciado", "Em andamento", "Concluído", "Pausado", "Cancelado"' }
+        },
+        required: ['pageId', 'status'],
+        additionalProperties: false,
+    }),
+    execute: async ({ pageId, status }) => {
+        const success = await NotionService.updateProjectStatus(pageId, status);
+        if (!success) return { error: 'Falha ao atualizar o status do projeto no Notion.' };
+        return { success: true, message: `Status alterado para ${status}` };
+    }
+});
+
+export const listRemindersTool = (phone: string) => tool({
+    description: 'Lista os próximos lembretes pendentes agendados no Trigger.dev para este usuário (Comando "quais são os meus lembretes?").',
+    inputSchema: jsonSchema<{}>({
+        type: 'object',
+        properties: {},
+        additionalProperties: false,
+    }),
+    execute: async () => {
+        try {
+            configure({ secretKey: process.env.TRIGGER_SECRET_KEY! });
+            const page = await runs.list({ 
+                taskIdentifier: 'send-reminder', 
+                limit: 20,
+                status: ['DELAYED', 'QUEUED', 'EXECUTING'] as any
+            });
+            const runsDetailed = await Promise.all(page.data.map((r: any) => runs.retrieve(r.id).catch(() => r)));
+            const pending = runsDetailed.filter((r: any) => r.payload?.senderPhone === phone || r.payload?.jid === phone);
+            if (pending.length === 0) return { result: 'Você não tem nenhum lembrete pendente.' };
+            return { result: pending.map((r: any) => ({ id: r.id, reminder: r.payload?.reminder, delayedUntil: r.delayedUntil })) };
+        } catch (e: any) {
+            return { error: 'Erro ao listar lembretes: ' + e.message };
+        }
+    }
+});
+
+export const cancelReminderTool = (phone: string) => tool({
+    description: 'Cancela um lembrete específico previamente agendado no Trigger.dev (Comando "cancela o lembrete de teste"). Use ID ou palavra-chave.',
+    inputSchema: jsonSchema<{ search: string }>({
+        type: 'object',
+        properties: {
+            search: { type: 'string', description: 'ID exato da run (run_xxx) OU um trecho de texto do lembrete (ex: "comprar")' }
+        },
+        required: ['search'],
+        additionalProperties: false,
+    }),
+    execute: async ({ search }) => {
+        try {
+            configure({ secretKey: process.env.TRIGGER_SECRET_KEY! });
+            // Se for ID direto
+            if (search.startsWith('run_')) {
+                await runs.cancel(search);
+                return { success: true, message: 'Lembrete cancelado com sucesso.' };
+            }
+            
+            // Busca por texto
+            const page = await runs.list({ 
+                taskIdentifier: 'send-reminder', 
+                limit: 20,
+                status: ['DELAYED', 'QUEUED', 'EXECUTING'] as any
+            });
+            
+            const runsDetailed = await Promise.all(page.data.map((r: any) => runs.retrieve(r.id).catch(() => r)));
+            const match = runsDetailed.find((r: any) => 
+                (r.payload?.senderPhone === phone || r.payload?.jid === phone) &&
+                (r.payload?.reminder || '').toLowerCase().includes(search.toLowerCase())
+            );
+            
+            if (!match) return { error: 'Nenhum lembrete encontrado contendo esse texto.' };
+            
+            await runs.cancel(match.id);
+            return { success: true, message: `Lembrete "${match.payload?.reminder}" cancelado com sucesso.` };
+        } catch (e: any) {
+            return { error: 'Falha ao cancelar o lembrete: ' + e.message };
         }
     }
 });

@@ -296,6 +296,26 @@ export class NotionService {
     }
 
     /**
+     * Updates the status of an existing project in the Notion Database.
+     */
+    static async updateProjectStatus(pageId: string, status: string): Promise<boolean> {
+        try {
+            await notion.pages.update({
+                page_id: pageId,
+                properties: {
+                    "Status": {
+                        status: { name: status }
+                    }
+                }
+            });
+            return true;
+        } catch (error) {
+            console.error("Error updating project status:", error);
+            return false;
+        }
+    }
+
+    /**
      * Searches across all pages and databases in the Notion workspace.
      */
     static async searchAll(query: string): Promise<{ id: string; title: string; type: string; url: string }[]> {
