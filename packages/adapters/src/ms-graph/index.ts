@@ -23,11 +23,11 @@ export class GraphCalendarAdapter implements CalendarPort {
         this.client = Client.initWithMiddleware({ authProvider });
     }
 
-    async getEventsForUsers(emails: string[]): Promise<any[]> {
+    async getEventsForUsers(emails: string[], days: number = 7): Promise<any[]> {
         const allEvents: any[] = [];
         const now = new Date();
         now.setHours(0, 0, 0, 0); // Começa na meia noite do dia atual
-        const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+        const targetDate = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
 
         for (const email of emails) {
             try {
@@ -35,9 +35,9 @@ export class GraphCalendarAdapter implements CalendarPort {
                     .api(`/users/${email}/calendarView`)
                     .query({
                         startDateTime: now.toISOString(),
-                        endDateTime: nextWeek.toISOString(),
-                        $select: 'subject,start,end,location,organizer',
-                        $top: 20
+                        endDateTime: targetDate.toISOString(),
+                        $select: 'subject,start,end,location,organizer,attendees',
+                        $top: 250
                     })
                     .get();
 

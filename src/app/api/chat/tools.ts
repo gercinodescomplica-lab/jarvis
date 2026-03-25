@@ -50,7 +50,7 @@ export const searchProjects = cachedTool({
 export const getCalendarEvents = cachedTool({
     name: 'getCalendarEvents',
     cacheTtlMs: 5 * 60 * 1000, // 5 minutos — agenda muda moderadamente
-    description: 'Get upcoming calendar events and meetings from Microsoft Graph. You can specify a user email or name. Users available: tiagoluz@prodam.sp.gov.br (Tiago), danielleoliveira@prodam.sp.gov.br (Danielle), gercinoneto@prodam.sp.gov.br (Gercino).',
+    description: 'Get upcoming calendar events and meetings from Microsoft Graph. You can specify a user email or name. Users available: tiagoluz@prodam.sp.gov.br (Tiago), danielleoliveira@prodam.sp.gov.br (Danielle), gercinoneto@prodam.sp.gov.br (Gercino). Use this tool also when asked for available times (free slots) or meetings with specific people, and calculate the results based on the returned events and their attendees. Assume working hours from 09:00 to 18:00.',
     inputSchema: jsonSchema<{ days?: number, userName?: string }>({
         type: 'object',
         properties: {
@@ -80,7 +80,7 @@ export const getCalendarEvents = cachedTool({
                 else if (userName.includes('@')) targetEmails = [userName];
             }
 
-            const results = await adapter.getEventsForUsers(targetEmails);
+            const results = await adapter.getEventsForUsers(targetEmails, days);
             const allEvents = results.flatMap(r => r.events || []);
 
             if (allEvents.length === 0) {

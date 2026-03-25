@@ -44,5 +44,5 @@ export interface TelegramPort {
 }
 
 export interface CalendarPort {
-    getEventsForUsers(emails: string[]): Promise<any[]>;
+    getEventsForUsers(emails: string[], days?: number): Promise<any[]>;
 }
