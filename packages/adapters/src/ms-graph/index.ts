@@ -27,7 +27,8 @@ export class GraphCalendarAdapter implements CalendarPort {
         const allEvents: any[] = [];
         const now = new Date();
         now.setHours(0, 0, 0, 0); // Começa na meia noite do dia atual
-        const targetDate = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+        const targetDate = new Date(now);
+        targetDate.setDate(targetDate.getDate() + days);
 
         for (const email of emails) {
             try {
@@ -37,7 +38,7 @@ export class GraphCalendarAdapter implements CalendarPort {
                         startDateTime: now.toISOString(),
                         endDateTime: targetDate.toISOString(),
                         $select: 'subject,start,end,location,organizer,attendees',
-                        $top: 250
+                        $top: 999
                     })
                     .get();
 

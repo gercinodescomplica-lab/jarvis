@@ -50,13 +50,13 @@ export const searchProjects = cachedTool({
 export const getCalendarEvents = cachedTool({
     name: 'getCalendarEvents',
     cacheTtlMs: 5 * 60 * 1000, // 5 minutos — agenda muda moderadamente
-    description: 'Get upcoming calendar events and meetings from Microsoft Graph. You can specify a user email or name. Users available: tiagoluz@prodam.sp.gov.br (Tiago), danielleoliveira@prodam.sp.gov.br (Danielle), gercinoneto@prodam.sp.gov.br (Gercino). Use this tool also when asked for available times (free slots) or meetings with specific people, and calculate the results based on the returned events and their attendees. Assume working hours from 09:00 to 18:00.',
+    description: 'Get upcoming calendar events and meetings from Microsoft Graph. You can specify a user email or name. Users available: tiagoluz@prodam.sp.gov.br (Tiago), danielleoliveira@prodam.sp.gov.br (Danielle), gercinoneto@prodam.sp.gov.br (Gercino). Use this tool also when asked for available times (free slots) or meetings with specific people, and calculate the results based on the returned events and their attendees. Assume working hours from 09:00 to 18:00.\n\nCRITICAL: You MUST explicitly set the "days" parameter based on the user\'s timeframe (e.g., set days to 30 or 31 if they ask for "next month", 7 for "next week", 1 for "today"). Otherwise, it defaults to 7 days and you will return incomplete/wrong data.',
     inputSchema: jsonSchema<{ days?: number, userName?: string }>({
         type: 'object',
         properties: {
             days: {
                 type: 'number',
-                description: 'Number of days to look ahead (default: 7)'
+                description: 'Number of days to look ahead based on user prompt (e.g. 30 for a month, 7 for a week, 1 for today). If omitted, defaults to 7.'
             },
             userName: {
                 type: 'string',

@@ -9,11 +9,11 @@ async function test() {
     console.log('Testing Graph Calendar Adapter...');
     try {
         const adapter = new GraphCalendarAdapter();
-        const emails = process.env.GRAPH_USER_EMAILS?.split(',') || [];
+        const emails = ['gercinoneto@prodam.sp.gov.br'];
 
         console.log(`Users to fetch: ${emails.join(', ')}`);
 
-        const results = await adapter.getEventsForUsers(emails);
+        const results = await adapter.getEventsForUsers(emails, 30);
 
         results.forEach(res => {
             if (res.error) {
