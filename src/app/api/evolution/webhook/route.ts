@@ -1,115 +1,49 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/db';
 import { waitUntil } from '@vercel/functions';
-import { saveMemory, saveDocument, getMemoryContext, canStoreMemory } from '@/lib/memory-service';
+import { saveMemory, saveDocument, getMemoryContext, canStoreMemory, getSemanticHistory } from '@/lib/memory-service';
 import { reminderTask } from '@/trigger/reminder';
 import { SpeechClient } from '@google-cloud/speech';
 import { generateText, stepCountIs } from 'ai';
 import { getModel } from '@/lib/ai-provider';
 import { getWhatsAppSystemPrompt } from '@/lib/system-prompts';
+import { createLogger } from '@/lib/logger';
+import { retryAsync } from '@/lib/retry';
+import { enviarAvisoWhatsApp, enviarSticker, markAsReading, downloadMedia } from '@/lib/evolution-client';
 import {
     searchProjects, getCalendarEvents, createProject,
-    getProjectDetails, getDRMData, analyzeProjects, searchDocuments, searchNotion, 
+    getProjectDetails, getDRMData, analyzeProjects, searchDocuments, searchNotion,
     createMemoryTool, searchMemoriesTool, deleteMemoryTool,
     listRemindersTool, cancelReminderTool, updateProjectStatusTool
 } from '@/app/api/chat/tools';
 
-// ─── Evolution API config ─────────────────────────────────────────────────────
-
-const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL;
-const EVOLUTION_API_TOKEN = process.env.EVOLUTION_API_TOKEN;
-const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE || 'LiciMonitor';
-
-async function enviarAvisoWhatsApp(telefone: string, mensagemTexto: string) {
-  const telefoneLimpo = telefone.replace('+', '');
-  try {
-    const response = await fetch(`${EVOLUTION_API_URL}/message/sendText/${EVOLUTION_INSTANCE}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_API_TOKEN || '' },
-      body: JSON.stringify({ number: telefoneLimpo, text: mensagemTexto, linkPreview: false })
-    });
-    if (!response.ok) throw new Error(`Erro na API Evolution: ${await response.text()}`);
-    return await response.json();
-  } catch (error) {
-    console.error("[Evolution] Falha ao enviar mensagem:", error);
-  }
-}
-
-async function enviarSticker(telefone: string, stickerBase64: string) {
-  const telefoneLimpo = telefone.replace('+', '');
-  try {
-    const response = await fetch(`${EVOLUTION_API_URL}/message/sendSticker/${EVOLUTION_INSTANCE}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_API_TOKEN || '' },
-      body: JSON.stringify({ number: telefoneLimpo, sticker: stickerBase64 })
-    });
-    if (!response.ok) throw new Error(`Erro na API Evolution: ${await response.text()}`);
-    return await response.json();
-  } catch (error) {
-    console.error('[Evolution] Falha ao enviar sticker:', error);
-  }
-}
-
-async function markAsReading(telefone: string) {
-  const telefoneLimpo = telefone.replace('+', '');
-  try {
-    await fetch(`${EVOLUTION_API_URL}/chat/sendPresence/${EVOLUTION_INSTANCE}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_API_TOKEN || '' },
-      body: JSON.stringify({ number: telefoneLimpo, delay: 1000, presence: "composing" })
-    });
-  } catch {
-    // Ignore presence errors
-  }
-}
-
-// Baixa mídia da Evolution API e retorna como Buffer
-async function downloadMedia(messageKey: any, messageData: any): Promise<Buffer | null> {
-  try {
-    const response = await fetch(
-      `${EVOLUTION_API_URL}/chat/getBase64FromMediaMessage/${EVOLUTION_INSTANCE}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_API_TOKEN || '' },
-        body: JSON.stringify({ message: { key: messageKey, message: messageData } })
-      }
-    );
-    if (!response.ok) return null;
-    const data = await response.json();
-    const base64 = data.base64 || data.data?.base64;
-    if (!base64) return null;
-    return Buffer.from(base64, 'base64');
-  } catch (e) {
-    console.error('[Evolution] Falha ao baixar mídia:', e);
-    return null;
-  }
-}
+const logger = createLogger('evolution');
 
 // ─── Processamento de PDF ─────────────────────────────────────────────────────
 
 async function processPdf(phone: string, messageKey: any, messageData: any, filename: string) {
-  console.log(`[PDF] 📨 PDF recebido de ${phone}: "${filename}"`);
+  logger.info(` 📨 PDF recebido de ${phone}: "${filename}"`);
   await enviarAvisoWhatsApp(phone, `📄 Recebi o PDF *${filename}*! Processando... aguarda um momento.`);
 
   const allowed = await canStoreMemory(phone);
   if (!allowed) {
-    console.warn(`[PDF] ⛔ Sem permissão para salvar: ${phone}`);
+    logger.warn(` ⛔ Sem permissão para salvar: ${phone}`);
     await enviarAvisoWhatsApp(phone, '❌ Você não tem permissão para salvar documentos na minha memória.');
     return;
   }
 
-  console.log(`[PDF] ⬇️  Baixando mídia...`);
+  logger.info(` ⬇️  Baixando mídia...`);
   const buffer = await downloadMedia(messageKey, messageData);
   if (!buffer) {
-    console.error(`[PDF] ❌ Falha ao baixar mídia de ${phone}`);
+    logger.error(` ❌ Falha ao baixar mídia de ${phone}`);
     await enviarAvisoWhatsApp(phone, '❌ Não consegui baixar o PDF. Tente novamente.');
     return;
   }
-  console.log(`[PDF] ✅ Mídia baixada: ${(buffer.length / 1024).toFixed(1)} KB`);
+  logger.info(` ✅ Mídia baixada: ${(buffer.length / 1024).toFixed(1)} KB`);
 
   try {
     const docId = await saveDocument(buffer, filename, phone);
-    console.log(`[PDF] 🎉 Processo concluído! docId=${docId}`);
+    logger.info(` 🎉 Processo concluído! docId=${docId}`);
 
     // Guarda estado pendente para aguardar o assunto do usuário
     await supabase.from('chats').insert({
@@ -121,7 +55,7 @@ async function processPdf(phone: string, messageKey: any, messageData: any, file
 
     await enviarAvisoWhatsApp(phone, `✅ PDF processado! Qual o *assunto* deste documento? (isso me ajuda a organizá-lo melhor)`);
   } catch (e: any) {
-    console.error(`[PDF] ❌ Erro ao processar "${filename}":`, e);
+    logger.error(` ❌ Erro ao processar "${filename}":`, e);
     await enviarAvisoWhatsApp(phone, `❌ Erro ao processar o PDF: ${e.message}`);
   }
 }
@@ -144,26 +78,29 @@ async function transcribeAudio(buffer: Buffer, mimetype: string): Promise<string
   else if (mimetype?.includes('webm')) encoding = 'WEBM_OPUS';
   else if (mimetype?.includes('wav')) encoding = 'LINEAR16';
 
-  console.log(`[STT] Transcrevendo ${(buffer.length / 1024).toFixed(1)} KB via Google Speech (${encoding})`);
+  logger.info(`Transcrevendo ${(buffer.length / 1024).toFixed(1)} KB via Google Speech (${encoding})`);
 
-  const [response] = await getSpeechClient().recognize({
-    audio: { content: buffer.toString('base64') },
-    config: {
-      encoding,
-      sampleRateHertz: 16000,
-      languageCode: 'pt-BR',
-      alternativeLanguageCodes: ['en-US'],
-      model: 'latest_long',
-      enableAutomaticPunctuation: true,
-    },
-  });
+  const [response] = await retryAsync(
+    () => getSpeechClient().recognize({
+      audio: { content: buffer.toString('base64') },
+      config: {
+        encoding,
+        sampleRateHertz: 16000,
+        languageCode: 'pt-BR',
+        alternativeLanguageCodes: ['en-US'],
+        model: 'latest_long',
+        enableAutomaticPunctuation: true,
+      },
+    }),
+    { attempts: 3, delayMs: 500, onRetry: (attempt, err) => logger.warn(`STT tentativa ${attempt} falhou`, err) }
+  );
 
   const text = response.results
     ?.map(r => r.alternatives?.[0]?.transcript)
     .filter(Boolean)
     .join(' ') || '';
 
-  console.log(`[STT] Resultado: "${text.slice(0, 100)}"`);
+  logger.info(`STT resultado: "${text.slice(0, 100)}"`);
   return text;
 }
 
@@ -181,12 +118,12 @@ async function inferSubjectFromText(text: string): Promise<string> {
 }
 
 async function processAudio(phone: string, messageKey: Record<string, unknown>, messageData: Record<string, unknown>, mimetype: string) {
-  console.log(`[Audio] Audio recebido de ${phone}`);
+  logger.info(` Audio recebido de ${phone}`);
   await markAsReading(phone);
 
   const buffer = await downloadMedia(messageKey, messageData);
   if (!buffer) {
-    console.error(`[Audio] Falha ao baixar audio de ${phone}`);
+    logger.error(` Falha ao baixar audio de ${phone}`);
     await enviarAvisoWhatsApp(phone, '❌ Não consegui baixar o áudio. Tente novamente.');
     return;
   }
@@ -343,17 +280,8 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
     // Salva mensagem do usuário no histórico
     await supabase.from('chats').insert({ phone, role: 'user', content: text, created_at: Date.now() });
 
-    // Busca histórico (últimas 10 msgs)
-    const { data: rawHistory } = await supabase
-      .from('chats')
-      .select('role, content, created_at')
-      .eq('phone', phone)
-      .order('created_at', { ascending: false })
-      .limit(10);
-    const messages = (rawHistory ?? []).reverse().map((m: { role: string; content: string }) => ({
-      role: m.role as 'user' | 'assistant',
-      content: m.content,
-    }));
+    // Busca histórico semântico (top 10 de 30, ponderado por recência + relevância)
+    const messages = await getSemanticHistory(text, phone, 10);
 
     // Busca contexto de memória isolado por owner (phone do usuário ou JID do grupo)
     const memoryContext = await getMemoryContext(text, phone);
@@ -410,7 +338,7 @@ async function handleStickerEmoji(phone: string, stickerFile: string, mensagem: 
     const stickerBase64 = fs.readFileSync(stickerPath).toString('base64');
     await enviarSticker(phone, stickerBase64);
   } else {
-    console.warn(`[StickerEmoji] Sticker não encontrado: ${stickerPath}`);
+    logger.warn(` Sticker não encontrado: ${stickerPath}`);
   }
 
   await enviarAvisoWhatsApp(phone, mensagem);
@@ -443,8 +371,8 @@ export async function checkAuthorization(phone: string, isGroup: boolean, groupJ
     if (dbEntry?.data != null) return !!dbEntry.data.active;
   } catch (e: any) {
     // DB indisponível ou lento → usa JSON como fallback
-    if (e?.message !== 'DB timeout') console.warn('[Auth] DB erro:', e?.message);
-    else console.warn('[Auth] DB timeout → usando fallback JSON');
+    if (e?.message !== 'DB timeout') logger.warn(' DB erro:', e?.message);
+    else logger.warn(' DB timeout → usando fallback JSON');
   }
 
   const perms = getPermissionsFromJson();
@@ -461,18 +389,17 @@ export async function checkAuthorization(phone: string, isGroup: boolean, groupJ
 const processedMessageIds = new Set<string>();
 const userRateLimits = new Map<string, number[]>();
 
-function checkRateLimit(phone: string): boolean {
+function checkRateLimit(key: string, limit = 10): boolean {
   const now = Date.now();
   const windowMs = 60 * 1000; // 1 min window
-  const limit = 10; // max messages per minute
-  
-  let times = userRateLimits.get(phone) || [];
+
+  let times = userRateLimits.get(key) || [];
   times = times.filter(t => now - t < windowMs);
-  
+
   if (times.length >= limit) return false;
-  
+
   times.push(now);
-  userRateLimits.set(phone, times);
+  userRateLimits.set(key, times);
   return true;
 }
 
@@ -526,7 +453,7 @@ export async function POST(req: Request) {
       const authorized = await checkAuthorization(phone, isGroup, isGroup ? phone : null);
 
       if (!authorized) {
-        console.log(`[PDF] Número não autorizado: ${phone}`);
+        logger.info(` Número não autorizado: ${phone}`);
         return NextResponse.json({ status: 'unauthorized' });
       }
 
@@ -544,7 +471,7 @@ export async function POST(req: Request) {
     if (phone && audioMsg) {
       const authorized = await checkAuthorization(phone, isGroup, isGroup ? phone : null);
       if (!authorized) {
-        console.log(`[Audio] Número não autorizado: ${phone}`);
+        logger.info(` Número não autorizado: ${phone}`);
         return NextResponse.json({ status: 'unauthorized' });
       }
 
@@ -553,7 +480,7 @@ export async function POST(req: Request) {
       if (isVercel) {
         waitUntil(processAudio(phone, key, msgData, mimetype));
       } else {
-        processAudio(phone, key, msgData, mimetype).catch(e => console.error('[processAudio] Error:', e));
+        processAudio(phone, key, msgData, mimetype).catch(e => logger.error(' Error:', e));
       }
       return NextResponse.json({ success: true });
     }
@@ -566,12 +493,12 @@ export async function POST(req: Request) {
     let authorized = false;
 
     if (isGroup) {
-      console.log(`[Evolution Group Check] JID chegou: ${phone}`);
+      logger.info(`[Evolution Group Check] JID chegou: ${phone}`);
       const perms = getPermissionsFromJson();
       const groupAuth = Object.values(perms.groups || {}).find((g: any) => g.jid === phone);
 
       if (!groupAuth) {
-        console.log(`[Evolution Group Check] ❌ Grupo bloqueado: ${phone}`);
+        logger.info(`[Evolution Group Check] ❌ Grupo bloqueado: ${phone}`);
         return NextResponse.json({ status: 'unauthorized_group' });
       }
 
@@ -589,16 +516,20 @@ export async function POST(req: Request) {
     } else {
       authorized = await checkAuthorization(phone, false, null);
       if (!authorized) {
-        console.log(`[Evolution User Check] ❌ Número não autorizado: ${phone}`);
+        logger.info(`[Evolution User Check] ❌ Número não autorizado: ${phone}`);
         return NextResponse.json({ status: 'unauthorized_number' });
       }
     }
 
     if (authorized) {
-      // W2: Rate limiting por usuário
-      if (!isGroup && !checkRateLimit(phone)) {
-        console.warn(`[RateLimit] Bloqueado temporariamente: ${phone}`);
-        waitUntil(enviarAvisoWhatsApp(phone, '⏳ Você está enviando mensagens rápido demais. Por favor, aguarde um minuto e tente novamente.'));
+      // W2: Rate limiting — grupos: 30/min, direto: 10/min
+      const rateLimitKey = isGroup ? phone : phone;
+      const rateLimitMax = isGroup ? 30 : 10;
+      if (!checkRateLimit(rateLimitKey, rateLimitMax)) {
+        logger.warn(`Rate limit atingido para ${isGroup ? 'grupo' : 'usuário'}: ${phone}`);
+        if (!isGroup) {
+          waitUntil(enviarAvisoWhatsApp(phone, '⏳ Você está enviando mensagens rápido demais. Por favor, aguarde um minuto e tente novamente.'));
+        }
         return NextResponse.json({ status: 'rate_limited' });
       }
 
@@ -639,13 +570,13 @@ export async function POST(req: Request) {
       if (isVercel) {
         waitUntil(processMessage(phone, text, 'text', senderPhone));
       } else {
-        processMessage(phone, text, 'text', senderPhone).catch(e => console.error('[processMessage] Error:', e));
+        processMessage(phone, text, 'text', senderPhone).catch(e => logger.error(' Error:', e));
       }
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("[Evolution Webhook] Parse Error:", error);
+    logger.error(" Parse Error:", error);
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 }

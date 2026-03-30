@@ -1,16 +1,19 @@
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+import { createLogger } from './logger';
 import { TelegramConfigService } from './telegram-config';
+
+const logger = createLogger('telegram-sender');
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
 export async function sendTelegramMessage(text: string, chatId?: string) {
     const targetChatId = chatId || TelegramConfigService.getChatId();
 
     if (!TELEGRAM_BOT_TOKEN) {
-        console.warn("[TelegramSender] TELEGRAM_BOT_TOKEN not set. Skipping message.");
+        logger.warn(" TELEGRAM_BOT_TOKEN not set. Skipping message.");
         return;
     }
 
     if (!targetChatId) {
-        console.warn("[TelegramSender] TELEGRAM_CHAT_ID not set (and no chatId provided). Skipping message.");
+        logger.warn(" TELEGRAM_CHAT_ID not set (and no chatId provided). Skipping message.");
         return;
     }
 
@@ -27,11 +30,11 @@ export async function sendTelegramMessage(text: string, chatId?: string) {
 
         if (!res.ok) {
             const err = await res.text();
-            console.error(`[TelegramSender] Failed to send message: ${err}`);
+            logger.error(` Failed to send message: ${err}`);
         } else {
-            console.log(`[TelegramSender] Message sent to ${targetChatId}`);
+            logger.info(` Message sent to ${targetChatId}`);
         }
     } catch (error) {
-        console.error("[TelegramSender] Network error:", error);
+        logger.error('Network error', error);
     }
 }

@@ -18,16 +18,44 @@ export function toVector32(embedding: number[]): string {
   return JSON.stringify(embedding);
 }
 
-// Divide texto em chunks de ~500 chars com overlap de 50 chars
-export function chunkText(text: string, chunkSize = 500, overlap = 50): string[] {
-  const chunks: string[] = [];
-  let start = 0;
+// Divide texto em chunks semânticos respeitando sentenças e parágrafos
+export function chunkText(text: string, maxChunkSize = 600, overlapSentences = 1): string[] {
+  // 1. Divide por parágrafos (double newline)
+  const paragraphs = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
 
-  while (start < text.length) {
-    const end = Math.min(start + chunkSize, text.length);
-    chunks.push(text.slice(start, end).trim());
-    start += chunkSize - overlap;
+  // 2. Divide parágrafos longos em sentenças
+  const sentenceBreak = /(?<=[.!?])\s+(?=[A-ZÀ-Ú])|(?<=\n)/;
+  const sentences: string[] = [];
+  for (const para of paragraphs) {
+    if (para.length <= maxChunkSize) {
+      sentences.push(para);
+    } else {
+      const parts = para.split(sentenceBreak).map(s => s.trim()).filter(s => s.length > 0);
+      sentences.push(...parts);
+    }
   }
 
-  return chunks.filter(c => c.length > 20);
+  // 3. Agrupa sentenças em chunks até maxChunkSize com overlap de 1 sentença
+  const chunks: string[] = [];
+  let current: string[] = [];
+  let currentLen = 0;
+
+  for (const sentence of sentences) {
+    if (currentLen + sentence.length + 1 > maxChunkSize && current.length > 0) {
+      chunks.push(current.join(' ').trim());
+      // Overlap: mantém última sentença do chunk anterior
+      const overlap = current.slice(-overlapSentences);
+      current = [...overlap, sentence];
+      currentLen = overlap.reduce((acc, s) => acc + s.length + 1, 0) + sentence.length;
+    } else {
+      current.push(sentence);
+      currentLen += sentence.length + 1;
+    }
+  }
+
+  if (current.length > 0) {
+    chunks.push(current.join(' ').trim());
+  }
+
+  return chunks.filter(c => c.length > 30);
 }
