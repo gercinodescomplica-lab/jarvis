@@ -317,10 +317,11 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
 
     // Verifica se algum step chamou analyzeProjects e retornou dados de gráfico
     let chartData: any = null;
-    for (const step of result.steps ?? []) {
+    const steps = await Promise.resolve(result.steps ?? []);
+    for (const step of steps) {
       for (const tr of (step as any).toolResults ?? []) {
-        if (tr.toolName === 'analyzeProjects' && tr.result?.type) {
-          chartData = tr.result;
+        if (tr.toolName === 'analyzeProjects' && tr.output?.type) {
+          chartData = tr.output;
           break;
         }
       }
