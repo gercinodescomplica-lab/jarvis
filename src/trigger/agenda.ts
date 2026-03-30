@@ -10,12 +10,13 @@ export const sendAgendaTask = schedules.task({
     // Lista de destinatários: número principal + Dani + extras via env var
     const primary = process.env.TARGET_WHATSAPP_GROUP || "5511949633602";
     const dani = "5516981317391"; // Danielle Oliveira
+    const grupoGe = "120363420097358880@g.us"; // Grupo Ge
     const extra = (process.env.AGENDA_EXTRA_RECIPIENTS || "")
       .split(",")
       .map(n => n.trim())
       .filter(Boolean);
 
-    const recipients = [...new Set([primary, dani, ...extra])];
+    const recipients = [...new Set([primary, dani, grupoGe, ...extra])];
 
     try {
       const relatorio = await getAgendaSemana();

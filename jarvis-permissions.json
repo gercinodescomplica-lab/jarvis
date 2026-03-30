@@ -17,6 +17,10 @@
     "Jarvis-Prodam": {
       "jid": "120363424207983724@g.us",
       "permission": "send_and_receive"
+    },
+    "Grupo-Ge": {
+      "jid": "120363420097358880@g.us",
+      "permission": "send_and_receive"
     }
   }
 }
