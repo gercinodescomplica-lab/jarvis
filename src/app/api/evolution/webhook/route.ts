@@ -9,7 +9,8 @@ import { getModel } from '@/lib/ai-provider';
 import { getWhatsAppSystemPrompt } from '@/lib/system-prompts';
 import { createLogger } from '@/lib/logger';
 import { retryAsync } from '@/lib/retry';
-import { enviarAvisoWhatsApp, enviarSticker, markAsReading, downloadMedia } from '@/lib/evolution-client';
+import { enviarAvisoWhatsApp, enviarSticker, enviarImagemWhatsApp, markAsReading, downloadMedia } from '@/lib/evolution-client';
+import { renderChartToBase64 } from '@/lib/chart-renderer';
 import {
     searchProjects, getCalendarEvents, createProject,
     getProjectDetails, getDRMData, analyzeProjects, searchDocuments, searchNotion,
@@ -314,8 +315,30 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
 
     const assistantContent = result.text || "Desculpe, tive um problema ao processar sua resposta.";
 
+    // Verifica se algum step chamou analyzeProjects e retornou dados de gráfico
+    let chartData: any = null;
+    for (const step of result.steps ?? []) {
+      for (const tr of (step as any).toolResults ?? []) {
+        if (tr.toolName === 'analyzeProjects' && tr.result?.type) {
+          chartData = tr.result;
+          break;
+        }
+      }
+      if (chartData) break;
+    }
+
     await supabase.from('chats').insert({ phone, role: 'assistant', content: assistantContent, created_at: Date.now() });
-    await enviarAvisoWhatsApp(phone, assistantContent);
+
+    if (chartData) {
+      const imageBase64 = await renderChartToBase64(chartData);
+      if (imageBase64) {
+        await enviarImagemWhatsApp(phone, imageBase64, assistantContent);
+      } else {
+        await enviarAvisoWhatsApp(phone, assistantContent);
+      }
+    } else {
+      await enviarAvisoWhatsApp(phone, assistantContent);
+    }
 
   } catch (error) {
     console.error('[Evolution Process] Error:', error);

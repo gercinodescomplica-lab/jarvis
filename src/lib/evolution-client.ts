@@ -72,6 +72,36 @@ export async function markAsReading(telefone: string) {
   }
 }
 
+export async function enviarImagemWhatsApp(telefone: string, imageBase64: string, caption?: string) {
+  const telefoneLimpo = telefone.replace('+', '');
+  return retryAsync(
+    async () => {
+      const response = await fetch(
+        `${EVOLUTION_API_URL}/message/sendMedia/${EVOLUTION_INSTANCE}`,
+        {
+          method: 'POST',
+          headers: evolutionHeaders(),
+          body: JSON.stringify({
+            number: telefoneLimpo,
+            mediatype: 'image',
+            mimetype: 'image/png',
+            media: imageBase64,
+            caption: caption || '',
+          }),
+        }
+      );
+      if (!response.ok) throw new Error(`Evolution API error: ${await response.text()}`);
+      return response.json();
+    },
+    {
+      attempts: 2,
+      delayMs: 500,
+      onRetry: (attempt, err) =>
+        logger.warn(`enviarImagemWhatsApp tentativa ${attempt} falhou`, err),
+    }
+  ).catch(err => logger.error('Falha ao enviar imagem', err));
+}
+
 export async function downloadMedia(
   messageKey: unknown,
   messageData: unknown
