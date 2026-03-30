@@ -10,7 +10,9 @@ function isInJsonWhitelist(phone: string): boolean {
   try {
     const filePath = path.join(process.cwd(), 'jarvis-permissions.json');
     const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    return !!Object.entries(data.users || {}).find(([k]) => phone.includes(k));
+    const inUsers = !!Object.entries(data.users || {}).find(([k]) => phone.includes(k));
+    const inGroups = !!Object.values(data.groups || {}).find((g: any) => g.jid === phone);
+    return inUsers || inGroups;
   } catch {
     return false;
   }
