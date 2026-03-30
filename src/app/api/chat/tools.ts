@@ -255,6 +255,19 @@ Examples: manager goals bar chart, pipeline by quarter, project status pie chart
     },
 });
 
+// Factory que captura o chartData via closure — mesma abordagem do createMemoryTool.
+// O webhook passa um ref e quando o LLM chamar renderChart, o dado fica disponível
+// sem precisar parsear result.steps.
+export const createRenderChartTool = (ref: { data: { type: string; title: string; data: any[] } | null }) =>
+    tool({
+        description: renderChart.description ?? '',
+        inputSchema: renderChart.inputSchema,
+        execute: async ({ type, title, data }: { type: string; title: string; data: any[] }) => {
+            ref.data = { type, title, data };
+            return { type, title, data };
+        },
+    });
+
 export const searchDocuments = cachedTool({
     name: 'searchDocuments',
     cacheTtlMs: 10 * 60 * 1000, // 10 minutos — documentos salvos mudam raramente
