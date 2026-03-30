@@ -98,8 +98,7 @@ export async function renderChartToBase64(chart: ChartData): Promise<string | nu
         }
 
         const buffer = await response.arrayBuffer();
-        const base64 = Buffer.from(buffer).toString('base64');
-        return `data:image/png;base64,${base64}`;
+        return Buffer.from(buffer).toString('base64');
     } catch (err) {
         logger.error('Falha ao gerar gráfico via QuickChart', err);
         return null;
