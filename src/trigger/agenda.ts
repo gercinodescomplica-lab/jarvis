@@ -7,14 +7,15 @@ export const sendAgendaTask = schedules.task({
   run: async (payload, { ctx }) => {
     console.log("[Trigger.dev] ⏰ Iniciando envio de agenda do Tiago...");
 
-    // Lista de destinatários: env var (grupo/número principal) + lista extra separada por vírgula
+    // Lista de destinatários: número principal + Dani + extras via env var
     const primary = process.env.TARGET_WHATSAPP_GROUP || "5511949633602";
-    const extra = (process.env.AGENDA_EXTRA_RECIPIENTS || "5516981317391")
+    const dani = "5516981317391"; // Danielle Oliveira
+    const extra = (process.env.AGENDA_EXTRA_RECIPIENTS || "")
       .split(",")
       .map(n => n.trim())
       .filter(Boolean);
 
-    const recipients = [...new Set([primary, ...extra])];
+    const recipients = [...new Set([primary, dani, ...extra])];
 
     try {
       const relatorio = await getAgendaSemana();
