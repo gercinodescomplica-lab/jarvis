@@ -1,5 +1,8 @@
 import { Client } from "@notionhq/client";
 import { PageObjectResponse } from "@notionhq/client/build/src/api-endpoints";
+import { createLogger } from './logger';
+
+const logger = createLogger('notion');
 
 // Database ID constant
 const PROJECT_DB_ID = "2483e292-52b4-81f3-b808-f2873f7aecac";
@@ -62,7 +65,7 @@ export class NotionService {
      */
     static async getAllProjects(): Promise<NotionProject[]> {
         try {
-            console.log("[NotionService] Querying Database:", PROJECT_DB_ID);
+            logger.info("Querying Database:", PROJECT_DB_ID);
             const response = await notion.databases.query({
                 database_id: PROJECT_DB_ID,
                 sorts: [
@@ -73,25 +76,25 @@ export class NotionService {
                 ],
             });
 
-            console.log(`[NotionService] Raw results count: ${response.results.length}`);
+            logger.info(`Raw results count: ${response.results.length}`);
             if (response.results.length > 0) {
                 const firstProp = (response.results[0] as any).properties;
-                console.log("[NotionService] Sample First Item Properties Keys:", Object.keys(firstProp));
-                console.log("[NotionService] Sample First Item 'Importância':", JSON.stringify(firstProp["Importância"]));
-                console.log("[NotionService] Sample First Item 'Status':", JSON.stringify(firstProp["Status"]));
+                logger.info("Sample First Item Properties Keys:", Object.keys(firstProp));
+                logger.info("Sample First Item 'Importância':", JSON.stringify(firstProp["Importância"]));
+                logger.info("Sample First Item 'Status':", JSON.stringify(firstProp["Status"]));
             }
 
             const projects = response.results
                 .filter((page): page is PageObjectResponse => "properties" in page)
                 .map(mapPageToProject);
 
-            console.log(`[NotionService] Mapped projects count: ${projects.length}`);
+            logger.info(`Mapped projects count: ${projects.length}`);
             if (projects.length > 0) {
-                console.log("[NotionService] Sample First Project Mapped:", JSON.stringify(projects[0], null, 2));
+                logger.info("Sample First Project Mapped:", JSON.stringify(projects[0], null, 2));
             }
             return projects;
         } catch (error) {
-            console.error("Notion API Error:", error);
+            logger.error("Notion API Error:", error);
             return [];
         }
     }
@@ -240,7 +243,7 @@ export class NotionService {
 
             return content || "Sem conteúdo adicional.";
         } catch (error) {
-            console.error("Error fetching project details:", error);
+            logger.error("Error fetching project details:", error);
             return "Erro ao carregar detalhes.";
         }
     }
@@ -290,7 +293,7 @@ export class NotionService {
 
             return response.id;
         } catch (error) {
-            console.error("Error creating project:", error);
+            logger.error("Error creating project:", error);
             return null;
         }
     }
@@ -310,7 +313,7 @@ export class NotionService {
             });
             return true;
         } catch (error) {
-            console.error("Error updating project status:", error);
+            logger.error("Error updating project status:", error);
             return false;
         }
     }
@@ -362,7 +365,7 @@ export class NotionService {
             const titles = projects.map(p => p.title);
             return [...new Set(titles)];
         } catch (error) {
-            console.error("Error fetching entities:", error);
+            logger.error("Error fetching entities:", error);
             return [];
         }
     }

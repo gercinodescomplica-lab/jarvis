@@ -1,6 +1,9 @@
 import { NotionService, NotionProject } from "./notion-service";
 import { OpenAIAdapter } from '@jarvis/adapters/src/openai';
 import { ReminderService } from "./reminder-service";
+import { createLogger } from './logger';
+
+const logger = createLogger('jarvis');
 
 
 
@@ -46,13 +49,13 @@ export class JarvisIntelligence {
         let cleanQuery = query;
         if (query.length > 10) {
             cleanQuery = await this.correctEntities(query);
-            console.log(`[JarvisIntelligence] Entity Correction: "${query}" -> "${cleanQuery}"`);
+            logger.info(` Entity Correction: "${query}" -> "${cleanQuery}"`);
         }
 
         // 1. ANALYZE QUERY (Intent + Data Extraction in one go)
-        console.log(`[JarvisIntelligence] Analyzing query: "${cleanQuery}"`);
+        logger.info(` Analyzing query: "${cleanQuery}"`);
         const analysis = await this.analyzeQuery(cleanQuery);
-        console.log(`[JarvisIntelligence] Analysis Result:`, JSON.stringify(analysis, null, 2));
+        logger.info(` Analysis Result:`, JSON.stringify(analysis, null, 2));
 
         const intent = analysis.intent;
 
@@ -126,10 +129,10 @@ export class JarvisIntelligence {
         const now = Date.now();
         // Refresh every 10 minutes
         if (now - this.lastEntityFetch > 10 * 60 * 1000 || this.knownEntities.length === 0) {
-            console.log("[JarvisIntelligence] Refreshing Entity Cache from Notion...");
+            logger.info(" Refreshing Entity Cache from Notion...");
             this.knownEntities = await NotionService.getKnownEntities();
             this.lastEntityFetch = now;
-            console.log(`[JarvisIntelligence] Loaded ${this.knownEntities.length} entities.`);
+            logger.info(` Loaded ${this.knownEntities.length} entities.`);
         }
     }
 
@@ -231,7 +234,7 @@ export class JarvisIntelligence {
             const json = JSON.parse(response.replace(/```json|```/g, "").trim());
             return json;
         } catch (e) {
-            console.error("Analysis Failed", e);
+            logger.error("Analysis Failed", e);
             return { intent: "SEARCH" };
         }
     }
@@ -277,7 +280,7 @@ export class JarvisIntelligence {
                 summary: `Lembrete definido! Vou te avisar às ${timeStr} para: *${slots.message}*`
             };
         } catch (e) {
-            console.error("[JarvisIntelligence] Reminder extraction failed:", e);
+            logger.error(" Reminder extraction failed:", e);
             return {
                 type: "SET_REMINDER",
                 data: [],
@@ -309,7 +312,7 @@ export class JarvisIntelligence {
         try {
             slots = JSON.parse(extractedJson.replace(/```json|```/g, "").trim());
         } catch (e) {
-            console.error("JSON Parse Error", e);
+            logger.error("JSON Parse Error", e);
             return { type: "SEARCH", data: [], summary: "Não entendi os dados da tarefa." };
         }
 
@@ -405,7 +408,7 @@ export class JarvisIntelligence {
      */
     private static async findBestMatch(userQuery: string): Promise<string | null> {
         try {
-            console.log(`[JarvisIntelligence] Attempting Fuzzy Match for: "${userQuery}"`);
+            logger.info(` Attempting Fuzzy Match for: "${userQuery}"`);
             const allProjects = await NotionService.getAllProjects();
             const titles = allProjects.map(p => p.title).join("\n");
 
@@ -427,15 +430,15 @@ export class JarvisIntelligence {
             const cleanResponse = response.replace(/["`]/g, "").trim();
 
             if (cleanResponse !== "null" && cleanResponse.length > 0) {
-                console.log(`[JarvisIntelligence] Fuzzy Match Found: "${userQuery}" -> "${cleanResponse}"`);
+                logger.info(` Fuzzy Match Found: "${userQuery}" -> "${cleanResponse}"`);
                 return cleanResponse;
             }
 
-            console.log(`[JarvisIntelligence] No fuzzy match found.`);
+            logger.info(` No fuzzy match found.`);
             return null;
 
         } catch (error) {
-            console.error("Error in findBestMatch:", error);
+            logger.error("Error in findBestMatch:", error);
             return null;
         }
     }

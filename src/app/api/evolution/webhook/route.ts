@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/db';
 import { waitUntil } from '@vercel/functions';
-import { saveMemory, saveDocument, getMemoryContext, canStoreMemory } from '@/lib/memory-service';
+import { saveMemory, saveDocument, getMemoryContext, canStoreMemory, getSemanticHistory } from '@/lib/memory-service';
 import { reminderTask } from '@/trigger/reminder';
 import { SpeechClient } from '@google-cloud/speech';
 import { generateText, stepCountIs } from 'ai';
@@ -280,17 +280,8 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
     // Salva mensagem do usuário no histórico
     await supabase.from('chats').insert({ phone, role: 'user', content: text, created_at: Date.now() });
 
-    // Busca histórico (últimas 10 msgs)
-    const { data: rawHistory } = await supabase
-      .from('chats')
-      .select('role, content, created_at')
-      .eq('phone', phone)
-      .order('created_at', { ascending: false })
-      .limit(10);
-    const messages = (rawHistory ?? []).reverse().map((m: { role: string; content: string }) => ({
-      role: m.role as 'user' | 'assistant',
-      content: m.content,
-    }));
+    // Busca histórico semântico (top 10 de 30, ponderado por recência + relevância)
+    const messages = await getSemanticHistory(text, phone, 10);
 
     // Busca contexto de memória isolado por owner (phone do usuário ou JID do grupo)
     const memoryContext = await getMemoryContext(text, phone);

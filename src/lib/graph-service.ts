@@ -1,3 +1,6 @@
+import { createLogger } from './logger';
+const logger = createLogger('graph');
+
 export class GraphService {
     static async getUpcomingMeetings() {
         try {
@@ -5,7 +8,7 @@ export class GraphService {
             const graphToken = process.env.GRAPH_TOKEN;
 
             if (graphToken) {
-                console.log(`[GraphService] Using direct GRAPH_TOKEN`);
+                logger.info(` Using direct GRAPH_TOKEN`);
 
                 const now = new Date();
                 const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
@@ -25,9 +28,9 @@ export class GraphService {
                 });
 
                 if (!response.ok) {
-                    console.error(`[GraphService] Graph API Error: ${response.status} ${response.statusText}`);
+                    logger.error(` Graph API Error: ${response.status} ${response.statusText}`);
                     const errorBody = await response.text();
-                    console.error(`[GraphService] Details: ${errorBody}`);
+                    logger.error(` Details: ${errorBody}`);
                     return [];
                 }
 
@@ -49,14 +52,14 @@ export class GraphService {
             // Priority 2: Webhook (Power Automate / N8N)
             const webhookUrl = process.env.CALENDAR_WEBHOOK_URL;
             if (webhookUrl) {
-                console.log(`[GraphService] Fetching meetings from Webhook: ${webhookUrl}`);
+                logger.info(` Fetching meetings from Webhook: ${webhookUrl}`);
                 const response = await fetch(webhookUrl, {
                     method: "GET", // Or POST if your webhook requires it
                     headers: { "Content-Type": "application/json" }
                 });
 
                 if (!response.ok) {
-                    console.error(`[GraphService] Webhook Error: ${response.status} ${response.statusText}`);
+                    logger.error(` Webhook Error: ${response.status} ${response.statusText}`);
                     return [];
                 }
 

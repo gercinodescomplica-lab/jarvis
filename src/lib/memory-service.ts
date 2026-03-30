@@ -238,6 +238,51 @@ export async function searchDocuments(query: string, owner: string, limit = 5): 
   );
 }
 
+// ─── Histórico semântico de chat ─────────────────────────────────────────────
+
+export async function getSemanticHistory(
+  currentMessage: string,
+  phone: string,
+  maxMessages = 10
+): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
+  const { data: rawHistory } = await supabase
+    .from('chats')
+    .select('role, content, created_at')
+    .eq('phone', phone)
+    .in('role', ['user', 'assistant'])
+    .order('created_at', { ascending: false })
+    .limit(30);
+
+  if (!rawHistory || rawHistory.length === 0) return [];
+
+  // Pontuação: 0.6 * recência + 0.4 * overlap de palavras como proxy semântico
+  const currentWords = new Set(currentMessage.toLowerCase().split(/\s+/).filter(w => w.length > 3));
+
+  const scored = rawHistory.map((msg, idx) => {
+    const recency = 1 - idx / rawHistory.length;
+
+    let similarity = 0;
+    if (msg.role === 'user' && currentWords.size > 0) {
+      const msgWords = msg.content.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3);
+      const overlap = msgWords.filter((w: string) => currentWords.has(w)).length;
+      similarity = Math.min(overlap / currentWords.size, 1);
+    }
+
+    return { msg, score: 0.6 * recency + 0.4 * similarity };
+  });
+
+  // Top maxMessages por score, reordenados cronologicamente
+  const selected = scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, maxMessages)
+    .sort((a, b) => a.msg.created_at - b.msg.created_at);
+
+  return selected.map(s => ({
+    role: s.msg.role as 'user' | 'assistant',
+    content: s.msg.content,
+  }));
+}
+
 // ─── Contexto semântico para o LLM ───────────────────────────────────────────
 
 export async function getMemoryContext(query: string, owner: string): Promise<string> {

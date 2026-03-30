@@ -1,4 +1,7 @@
 import { tool, jsonSchema } from 'ai';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('tools');
 import { cachedTool } from '@/lib/tool-middleware';
 import { NotionService } from '@/lib/notion-service';
 import { CalendarDB } from '@/lib/calendar-db';
@@ -94,7 +97,7 @@ export const getCalendarEvents = cachedTool({
 
             return allEvents;
         } catch (error) {
-            console.error("[Tool] Graph API error, falling back to local DB:", error);
+            logger.error(" Graph API error, falling back to local DB:", error);
             const start = new Date();
             start.setHours(0, 0, 0, 0);
             const end = new Date();
@@ -321,7 +324,7 @@ export const createProject = tool({
         additionalProperties: false,
     }),
     execute: async (data: any) => {
-        console.log(`[Tool] Creating Project:`, data);
+        logger.info(` Creating Project:`, data);
         const payload = {
             ...data,
             importance: data.importance || 'Média',
@@ -346,7 +349,7 @@ export const createReminder = tool({
         additionalProperties: false,
     }),
     execute: async ({ message, remindAt }) => {
-        console.log(`[Tool] Creating Reminder: "${message}" at ${remindAt}`);
+        logger.info(` Creating Reminder: "${message}" at ${remindAt}`);
         try {
             const { ReminderService } = await import('@/lib/reminder-service');
             const { TelegramConfigService } = await import('@/lib/telegram-config');
