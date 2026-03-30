@@ -221,7 +221,8 @@ export const searchDocuments = cachedTool({
     cacheTtlMs: 10 * 60 * 1000, // 10 minutos — documentos salvos mudam raramente
     description: `Busca em documentos e PDFs que foram enviados e salvos na base de conhecimento.
 Use SEMPRE que o usuário perguntar sobre conteúdo de documentos, relatórios, PDFs, ou qualquer arquivo enviado (ex: GRI, relatório, contrato, manual).
-Exemplos: "o que é GRI?", "o que diz o relatório X?", "me fala sobre o documento Y".`,
+Exemplos: "o que é GRI?", "o que diz o relatório X?", "me fala sobre o documento Y".
+IMPORTANTE: Se o usuário pedir para LISTAR TODOS os critérios/itens/seções de um documento específico, use getDocumentContent em vez desta ferramenta.`,
     inputSchema: jsonSchema<{ query: string }>({
         type: 'object',
         properties: {
@@ -234,16 +235,15 @@ Exemplos: "o que é GRI?", "o que diz o relatório X?", "me fala sobre o documen
         additionalProperties: false,
     }),
     execute: async ({ query }) => {
-        // Sanitizing query to prevent ilike wildcards from being interpreted literally or causing errors
         const terms = query.toLowerCase().split(/\s+/).filter((t: string) => t.length > 2);
-        const safeTerms = terms.map((t: string) => t.replace(/[%_]/g, '\\$&')); 
+        const safeTerms = terms.map((t: string) => t.replace(/[%_]/g, '\\$&'));
         const ilikeFilter = safeTerms.map((t: string) => `content.ilike.%${t}%`).join(',');
 
         const { data: chunks, error } = await supabase
             .from('document_chunks')
             .select('content, document_title')
             .or(ilikeFilter)
-            .limit(8);
+            .limit(20);
 
         if (error) throw error;
 
@@ -271,8 +271,73 @@ Exemplos: "o que é GRI?", "o que diz o relatório X?", "me fala sobre o documen
             found: true,
             results: Object.entries(grouped).map(([title, contents]) => ({
                 document: title,
-                excerpts: contents.slice(0, 3),
+                excerpts: contents,
             })),
+        };
+    }
+});
+
+export const getDocumentContent = cachedTool({
+    name: 'getDocumentContent',
+    cacheTtlMs: 10 * 60 * 1000,
+    description: `Retorna o conteúdo COMPLETO de um documento específico, em ordem, sem limite de trechos.
+Use quando o usuário pedir para LISTAR TODOS os itens, critérios, seções, ou requisitos de um documento.
+Exemplos: "lista todos os critérios do PDF", "me dá todos os requisitos da POC", "quais são todos os itens do edital?".`,
+    inputSchema: jsonSchema<{ documentName: string }>({
+        type: 'object',
+        properties: {
+            documentName: {
+                type: 'string',
+                description: 'Nome ou parte do nome do documento (ex: "POC", "GRI", "edital"). Não precisa ser exato.'
+            }
+        },
+        required: ['documentName'],
+        additionalProperties: false,
+    }),
+    execute: async ({ documentName }) => {
+        const safeName = documentName.replace(/[%_]/g, '\\$&');
+
+        // Busca o documento pelo nome
+        const { data: docs } = await supabase
+            .from('documents')
+            .select('id, filename, description')
+            .or(`filename.ilike.%${safeName}%,description.ilike.%${safeName}%`)
+            .limit(3);
+
+        let documentId: string | null = null;
+        let documentTitle: string | null = null;
+
+        if (docs && docs.length > 0) {
+            documentId = docs[0].id;
+            documentTitle = docs[0].filename;
+        }
+
+        // Busca todos os chunks do documento (por ID ou por título)
+        let query = supabase
+            .from('document_chunks')
+            .select('content, chunk_index, document_title')
+            .order('chunk_index', { ascending: true })
+            .limit(200);
+
+        if (documentId) {
+            query = query.eq('document_id', documentId);
+        } else {
+            query = query.ilike('document_title', `%${safeName}%`);
+        }
+
+        const { data: chunks, error } = await query;
+
+        if (error) throw error;
+
+        if (!chunks || chunks.length === 0) {
+            return { found: false, message: `Nenhum documento encontrado com o nome "${documentName}". Tente searchDocuments para buscar por conteúdo.` };
+        }
+
+        return {
+            found: true,
+            document: documentTitle || chunks[0].document_title || documentName,
+            totalChunks: chunks.length,
+            content: chunks.map(c => c.content).join('\n\n'),
         };
     }
 });
