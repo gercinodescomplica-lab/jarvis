@@ -318,8 +318,12 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
     // Verifica se algum step chamou analyzeProjects e retornou dados de gráfico
     let chartData: any = null;
     const steps = await Promise.resolve(result.steps ?? []);
+    logger.info(`[Chart] steps count: ${steps.length}`);
     for (const step of steps) {
-      for (const tr of (step as any).toolResults ?? []) {
+      const toolResults = (step as any).toolResults ?? [];
+      logger.info(`[Chart] step toolResults count: ${toolResults.length}`);
+      for (const tr of toolResults) {
+        logger.info(`[Chart] toolResult: name=${tr.toolName} output keys=${Object.keys(tr.output ?? {}).join(',')}`);
         if (tr.toolName === 'analyzeProjects' && tr.output?.type) {
           chartData = tr.output;
           break;
@@ -327,11 +331,14 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
       }
       if (chartData) break;
     }
+    logger.info(`[Chart] chartData found: ${!!chartData}`);
 
     await supabase.from('chats').insert({ phone, role: 'assistant', content: assistantContent, created_at: Date.now() });
 
     if (chartData) {
+      logger.info(`[Chart] rendering chart type=${chartData.type}`);
       const imageBase64 = await renderChartToBase64(chartData);
+      logger.info(`[Chart] render result: ${imageBase64 ? `ok (${imageBase64.length} chars)` : 'null'}`);
       if (imageBase64) {
         await enviarImagemWhatsApp(phone, imageBase64, assistantContent);
       } else {
