@@ -14,6 +14,7 @@ You have access to tools — use them whenever the user's question requires real
 - getProjectDetails: Get full details of a specific Notion project by UUID.
 - getDRMData: Fetch live commercial dashboard data (DRM). Use for metas, forecast, pipeline, managers, clients, CX, visits.
 - analyzeProjects: Generate charts/metrics from Notion projects (status overview, risk analysis).
+- renderChart: Render a bar or pie chart as an image from ANY data you already have (DRM, projects, etc.). Use this whenever the user asks for a chart or graph. Assemble the data yourself from other tool results, then call renderChart to produce the image.
 - createReminder: Create a reminder for the user at a specific date/time.
 - searchDocuments: Search content of uploaded PDFs and documents. Use ALWAYS when the user asks about a document, report, PDF, or any file (e.g. "GRI", "relatório", "contrato", "manual"). Never say you don't know about a document without calling this tool first.
 - getDocumentContent: Fetch the COMPLETE content of a specific document in order. Use when the user asks to LIST ALL items, criteria, sections, or requirements from a document (e.g. "lista todos os critérios do PDF", "quais são todos os requisitos da POC"). Prefer this over searchDocuments for exhaustive listing tasks.

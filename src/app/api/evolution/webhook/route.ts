@@ -13,7 +13,7 @@ import { enviarAvisoWhatsApp, enviarSticker, enviarImagemWhatsApp, markAsReading
 import { renderChartToBase64 } from '@/lib/chart-renderer';
 import {
     searchProjects, getCalendarEvents, createProject,
-    getProjectDetails, getDRMData, analyzeProjects, searchDocuments, searchNotion,
+    getProjectDetails, getDRMData, analyzeProjects, renderChart, searchDocuments, searchNotion,
     createMemoryTool, searchMemoriesTool, deleteMemoryTool,
     listRemindersTool, cancelReminderTool, updateProjectStatusTool
 } from '@/app/api/chat/tools';
@@ -302,6 +302,7 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
         getProjectDetails,
         getDRMData,
         analyzeProjects,
+        renderChart,
         searchDocuments,
         saveMemory: createMemoryTool(phone, isAllowedToSaveMemory),
         searchMemories: searchMemoriesTool(phone),
@@ -324,7 +325,7 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
       logger.info(`[Chart] step toolResults count: ${toolResults.length}`);
       for (const tr of toolResults) {
         logger.info(`[Chart] toolResult: name=${tr.toolName} output keys=${Object.keys(tr.output ?? {}).join(',')}`);
-        if (tr.toolName === 'analyzeProjects' && tr.output?.type) {
+        if ((tr.toolName === 'renderChart' || tr.toolName === 'analyzeProjects') && tr.output?.type) {
           chartData = tr.output;
           break;
         }

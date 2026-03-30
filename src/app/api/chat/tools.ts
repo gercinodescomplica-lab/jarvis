@@ -219,6 +219,42 @@ export const analyzeProjects = cachedTool({
     }
 });
 
+export const renderChart = tool({
+    description: `Renders a bar or pie chart as an image from any data the assistant already has.
+Use this whenever the user asks for a chart, graph, or visual from ANY data source (DRM, projects, calendar, etc.).
+You must assemble the chart data yourself from information returned by other tools, then call this to render it.
+Examples: manager goals bar chart, pipeline by quarter, project status pie chart.`,
+    inputSchema: jsonSchema<{
+        type: 'bar' | 'pie';
+        title: string;
+        data: Array<{ name: string; value: number }>;
+    }>({
+        type: 'object',
+        properties: {
+            type: { type: 'string', enum: ['bar', 'pie'], description: 'Chart type' },
+            title: { type: 'string', description: 'Chart title' },
+            data: {
+                type: 'array',
+                description: 'Array of data points',
+                items: {
+                    type: 'object',
+                    properties: {
+                        name: { type: 'string' },
+                        value: { type: 'number' },
+                    },
+                    required: ['name', 'value'],
+                    additionalProperties: false,
+                },
+            },
+        },
+        required: ['type', 'title', 'data'],
+        additionalProperties: false,
+    }),
+    execute: async ({ type, title, data }) => {
+        return { type, title, data };
+    },
+});
+
 export const searchDocuments = cachedTool({
     name: 'searchDocuments',
     cacheTtlMs: 10 * 60 * 1000, // 10 minutos — documentos salvos mudam raramente
