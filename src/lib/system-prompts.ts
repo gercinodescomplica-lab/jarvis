@@ -35,8 +35,9 @@ CURRENT BRAZIL DATE/TIME: ${getCurrentDateTime()}
 ${TOOL_INSTRUCTIONS}`;
 }
 
-export function getWhatsAppSystemPrompt(memoryContext: string): string {
-    return `You are Jarvis, a highly advanced AI Assistant available on WhatsApp. Be warm, concise and helpful.
+export function getWhatsAppSystemPrompt(memoryContext: string, userName?: string | null): string {
+    const userCtx = userName ? `\nYou are talking to *${userName}*. Always address them by name.` : '';
+    return `You are Jarvis, a highly advanced AI Assistant available on WhatsApp. Be warm, concise and helpful.${userCtx}
 FORMATTING RULES FOR WHATSAPP:
 - Use *asterisks* for bold text (e.g., *bold*).
 - Use _underscores_ for italic text (e.g., _italic_).

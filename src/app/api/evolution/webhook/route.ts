@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/db';
 import { waitUntil } from '@vercel/functions';
-import { saveMemory, saveDocument, getMemoryContext, canStoreMemory, getSemanticHistory } from '@/lib/memory-service';
+import { saveMemory, saveDocument, getMemoryContext, canStoreMemory, getSemanticHistory, getUserName } from '@/lib/memory-service';
 import { reminderTask } from '@/trigger/reminder';
 import { SpeechClient } from '@google-cloud/speech';
 import { generateText, stepCountIs } from 'ai';
@@ -298,19 +298,19 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
     await supabase.from('chats').insert({ phone, role: 'user', content: text, created_at: Date.now() });
 
     // Busca histórico semântico (top 10 de 30, ponderado por recência + relevância)
-    const messages = await getSemanticHistory(text, phone, 10);
-
-    // Busca contexto de memória isolado por owner (phone do usuário ou JID do grupo)
-    const memoryContext = await getMemoryContext(text, phone);
-
-    const isAllowedToSaveMemory = await canStoreMemory(phone);
+    const [messages, memoryContext, userName, isAllowedToSaveMemory] = await Promise.all([
+      getSemanticHistory(text, phone, 10),
+      getMemoryContext(text, phone),
+      getUserName(senderPhone || phone),
+      canStoreMemory(phone),
+    ]);
 
     // ── LLM com tools (o modelo decide qual ferramenta chamar) ─────────────
     const chartRef: { data: { type: string; title: string; data: any[] } | null } = { data: null };
 
     const result = await generateText({
       model: getModel(),
-      system: getWhatsAppSystemPrompt(memoryContext),
+      system: getWhatsAppSystemPrompt(memoryContext, userName),
       messages,
       tools: {
         searchProjects,

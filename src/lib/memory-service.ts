@@ -44,6 +44,16 @@ export async function canStoreMemory(phone: string): Promise<boolean> {
   return !!data?.active && !!data?.can_store_memory;
 }
 
+export async function getUserName(phone: string): Promise<string | null> {
+  const cleanPhone = phone.replace(/\D/g, '');
+  const { data } = await supabase
+    .from('whitelist')
+    .select('name')
+    .eq('phone', cleanPhone)
+    .maybeSingle();
+  return data?.name || null;
+}
+
 // ─── Memórias ────────────────────────────────────────────────────────────────
 
 const DEDUP_SIMILARITY_THRESHOLD = 0.92;
