@@ -25,18 +25,24 @@ export class GraphCalendarAdapter implements CalendarPort {
 
     async getEventsForUsers(emails: string[], days: number = 7): Promise<any[]> {
         const allEvents: any[] = [];
-        const now = new Date();
-        now.setHours(0, 0, 0, 0); // Começa na meia noite do dia atual
-        const targetDate = new Date(now);
-        targetDate.setDate(targetDate.getDate() + days);
+
+        // Meia-noite no horário de Brasília (UTC-3)
+        const nowBRT = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+        nowBRT.setHours(0, 0, 0, 0);
+        const startISO = new Date(nowBRT.getTime() + 3 * 60 * 60 * 1000).toISOString(); // converte de volta pra UTC
+
+        const endBRT = new Date(nowBRT);
+        endBRT.setDate(endBRT.getDate() + days);
+        const endISO = new Date(endBRT.getTime() + 3 * 60 * 60 * 1000).toISOString();
 
         for (const email of emails) {
             try {
                 const result = await this.client
                     .api(`/users/${email}/calendarView`)
+                    .header('Prefer', 'outlook.timezone="E. South America Standard Time"')
                     .query({
-                        startDateTime: now.toISOString(),
-                        endDateTime: targetDate.toISOString(),
+                        startDateTime: startISO,
+                        endDateTime: endISO,
                         $select: 'subject,start,end,location,organizer,attendees',
                         $top: 999
                     })
