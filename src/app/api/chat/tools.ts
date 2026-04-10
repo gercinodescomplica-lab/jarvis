@@ -1,5 +1,6 @@
 import { tool, jsonSchema } from 'ai';
 import { createLogger } from '@/lib/logger';
+import { reminderTask } from '@/trigger/reminder';
 
 const logger = createLogger('tools');
 import { cachedTool } from '@/lib/tool-middleware';
@@ -52,7 +53,7 @@ export const searchProjects = cachedTool({
 
 export const getCalendarEvents = cachedTool({
     name: 'getCalendarEvents',
-    cacheTtlMs: 5 * 60 * 1000, // 5 minutos — agenda muda moderadamente
+    cacheTtlMs: 0, // sem cache — agenda deve sempre retornar dados atualizados
     description: 'Get upcoming calendar events and meetings from Microsoft Graph. You can specify a user email or name. Users available: tiagoluz@prodam.sp.gov.br (Tiago), danielleoliveira@prodam.sp.gov.br (Danielle), gercinoneto@prodam.sp.gov.br (Gercino). Use this tool also when asked for available times (free slots) or meetings with specific people, and calculate the results based on the returned events and their attendees. Assume working hours from 09:00 to 18:00.\n\nCRITICAL: You MUST explicitly set the "days" parameter based on the user\'s timeframe:\n- "hoje" / "today" → days=1, show only events starting today\n- "amanhã" / "tomorrow" → days=2, show ONLY events starting tomorrow (filter out today\'s events)\n- "essa semana" / "próximos X dias" → days=7\n- "próximo mês" → days=31\nWhen user asks for "amanhã", do NOT show today\'s events — filter the results and show only tomorrow.',
     inputSchema: jsonSchema<{ days: number, userName?: string }>({
         type: 'object',
@@ -589,6 +590,43 @@ export const listRemindersTool = (phone: string) => tool({
             return { result: pending.map((r: any) => ({ id: r.id, reminder: r.payload?.reminder, delayedUntil: r.delayedUntil })) };
         } catch (e: any) {
             return { error: 'Erro ao listar lembretes: ' + e.message };
+        }
+    }
+});
+
+export const createWhatsAppReminderTool = (jid: string, senderPhone?: string) => tool({
+    description: 'Create a reminder that will be sent via WhatsApp at a specific date/time. Use whenever the user asks to be reminded about something at a specific time (e.g. "me lembra hoje às 10h", "me avisa amanhã de manhã").',
+    inputSchema: jsonSchema<{ message: string; remindAt: string }>({
+        type: 'object',
+        properties: {
+            message: { type: 'string', description: 'What to remind the user about (the reminder text)' },
+            remindAt: { type: 'string', description: 'ISO 8601 datetime for when to FIRE the reminder (America/Sao_Paulo timezone, e.g. 2026-04-10T10:00:00-03:00). This is when the alarm goes off, NOT dates mentioned inside the tasks.' },
+        },
+        required: ['message', 'remindAt'],
+        additionalProperties: false,
+    }),
+    execute: async ({ message, remindAt }) => {
+        try {
+            const when = new Date(remindAt);
+            if (isNaN(when.getTime())) return { error: 'Data/hora inválida.' };
+            if (when.getTime() <= Date.now()) return { error: 'A data/hora do lembrete já passou.' };
+
+            const isGroup = jid.includes('@g.us');
+            const cleanPhone = (senderPhone || jid).replace(/\D/g, '');
+            const payload = { senderPhone: cleanPhone, jid, isGroup, reminder: message };
+
+            logger.info(` Creating WhatsApp Reminder: "${message}" at ${when.toISOString()}`);
+            const run = await reminderTask.trigger(payload, { delay: when });
+
+            const whenStr = when.toLocaleString('pt-BR', {
+                timeZone: 'America/Sao_Paulo',
+                weekday: 'long', day: '2-digit', month: '2-digit',
+                hour: '2-digit', minute: '2-digit',
+            });
+            return { success: true, message, scheduledFor: whenStr, runId: run.id };
+        } catch (err: any) {
+            logger.error('[Tool] createWhatsAppReminderTool error:', err);
+            return { error: err.message || 'Falha ao criar lembrete.' };
         }
     }
 });

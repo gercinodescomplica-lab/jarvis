@@ -15,7 +15,7 @@ import {
     searchProjects, getCalendarEvents, createProject,
     getProjectDetails, getDRMData, analyzeProjects, createRenderChartTool, searchDocuments, searchNotion,
     createMemoryTool, searchMemoriesTool, deleteMemoryTool,
-    listRemindersTool, cancelReminderTool, updateProjectStatusTool
+    listRemindersTool, cancelReminderTool, updateProjectStatusTool, createWhatsAppReminderTool
 } from '@/app/api/chat/tools';
 
 const logger = createLogger('evolution');
@@ -118,29 +118,42 @@ async function inferSubjectFromText(text: string): Promise<string> {
   }
 }
 
-async function processAudio(phone: string, messageKey: Record<string, unknown>, messageData: Record<string, unknown>, mimetype: string) {
+const BOT_MENTION_REGEX = /\bjarvis\b|\bninja\s*search\b|\bninja\b/i;
+
+async function processAudio(
+  phone: string,
+  messageKey: Record<string, unknown>,
+  messageData: Record<string, unknown>,
+  mimetype: string,
+  options: { requireMention?: boolean; senderPhone?: string } = {}
+) {
   logger.info(` Audio recebido de ${phone}`);
   await markAsReading(phone);
 
   const buffer = await downloadMedia(messageKey, messageData);
   if (!buffer) {
     logger.error(` Falha ao baixar audio de ${phone}`);
-    await enviarAvisoWhatsApp(phone, '❌ Não consegui baixar o áudio. Tente novamente.');
+    if (!options.requireMention) await enviarAvisoWhatsApp(phone, '❌ Não consegui baixar o áudio. Tente novamente.');
     return;
   }
 
   try {
     const text = await transcribeAudio(buffer, mimetype);
     if (!text) {
-      await enviarAvisoWhatsApp(phone, '❌ Não consegui entender o áudio. Pode tentar de novo?');
+      if (!options.requireMention) await enviarAvisoWhatsApp(phone, '❌ Não consegui entender o áudio. Pode tentar de novo?');
       return;
     }
 
-    // Processa como mensagem normal, indicando origem de audio
-    await processMessage(phone, text, 'audio');
+    // Em grupos: só responde se o bot foi chamado pelo nome no áudio
+    if (options.requireMention && !BOT_MENTION_REGEX.test(text)) {
+      logger.info(` Áudio em grupo transcrito mas bot não mencionado: "${text.slice(0, 80)}"`);
+      return;
+    }
+
+    await processMessage(phone, text, 'audio', options.senderPhone);
   } catch (e) {
     console.error('[Audio] Erro na transcricao:', e);
-    await enviarAvisoWhatsApp(phone, '❌ Erro ao processar o áudio. Tente novamente.');
+    if (!options.requireMention) await enviarAvisoWhatsApp(phone, '❌ Erro ao processar o áudio. Tente novamente.');
   }
 }
 
@@ -161,9 +174,12 @@ Retorne um JSON com:
 - "what": o que deve ser lembrado (texto limpo, sem "me lembre de", etc.)
 - "whenMs": timestamp Unix em milliseconds do momento em que o lembrete deve disparar
 
-Regras:
-- Se nao houver data/hora especificada, retorne null em "whenMs"
-- Interprete "amanha", "proxima semana", "daqui a X minutos/horas" corretamente usando o Unix timestamp fornecido
+Regras CRITICAS:
+- "whenMs" deve ser APENAS a hora em que o lembrete deve DISPARAR (tocar o alarme), NÃO datas mencionadas dentro das tarefas.
+- Ignore datas que aparecem DENTRO do conteúdo das tarefas (ex: "fazer X na terça" → "terça" é quando fazer a tarefa, NÃO quando o lembrete dispara).
+- Foco exclusivo: quando o usuario disse "me lembra AS X HORAS" ou "me avisa EM TAL DIA" — essa é a hora de disparo.
+- Se nao houver data/hora especificada para o DISPARO, retorne null em "whenMs"
+- Interprete "hoje", "amanha", "proxima semana", "daqui a X minutos/horas" corretamente usando o Unix timestamp fornecido
 - "daqui a 2 minutos" = ${nowUtcMs} + 120000
 - Sempre retorne "whenMs" como numero inteiro
 
@@ -309,6 +325,7 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
         saveMemory: createMemoryTool(phone, isAllowedToSaveMemory),
         searchMemories: searchMemoriesTool(phone),
         deleteMemory: deleteMemoryTool(phone, isAllowedToSaveMemory),
+        createReminder: createWhatsAppReminderTool(phone, senderPhone),
         listReminders: listRemindersTool(phone),
         cancelReminder: cancelReminderTool(phone),
         updateProjectStatus: updateProjectStatusTool,
@@ -471,6 +488,20 @@ export async function POST(req: Request) {
         return NextResponse.json({ status: 'unauthorized' });
       }
 
+      // Em grupos, só processa o PDF se o bot foi mencionado (na legenda ou via @mention)
+      if (isGroup) {
+        const caption = (docMsg.caption || '').toLowerCase();
+        const isMentioned = mentionedJid.some((jid: string) => jid.includes(botIdentifier) || (botLid && jid.includes(botLid)))
+          || caption.includes('@jarvis')
+          || caption.includes('@ninjasearch')
+          || caption.includes('@ninja');
+
+        if (!isMentioned) {
+          logger.info(` PDF em grupo ignorado (bot não mencionado): ${phone}`);
+          return NextResponse.json({ status: 'ignored_not_mentioned_in_group' });
+        }
+      }
+
       if (Number(docMsg.fileLength) > 25 * 1024 * 1024) {
         waitUntil(enviarAvisoWhatsApp(phone, '❌ O PDF enviado tem mais de 25MB e excede nosso limite atual. Por favor, envie um arquivo menor.'));
         return NextResponse.json({ status: 'ignored_too_large' });
@@ -490,11 +521,12 @@ export async function POST(req: Request) {
       }
 
       const mimetype = audioMsg.mimetype || 'audio/ogg; codecs=opus';
+      const audioOptions = { requireMention: !!isGroup, senderPhone };
       const isVercel = process.env.VERCEL === '1';
       if (isVercel) {
-        waitUntil(processAudio(phone, key, msgData, mimetype));
+        waitUntil(processAudio(phone, key, msgData, mimetype, audioOptions));
       } else {
-        processAudio(phone, key, msgData, mimetype).catch(e => logger.error(' Error:', e));
+        processAudio(phone, key, msgData, mimetype, audioOptions).catch(e => logger.error(' Error:', e));
       }
       return NextResponse.json({ success: true });
     }

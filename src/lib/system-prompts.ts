@@ -36,7 +36,7 @@ ${TOOL_INSTRUCTIONS}`;
 }
 
 export function getWhatsAppSystemPrompt(memoryContext: string): string {
-    return `You are Rex, a highly advanced AI Assistant available on WhatsApp. Be warm, concise and helpful.
+    return `You are Jarvis, a highly advanced AI Assistant available on WhatsApp. Be warm, concise and helpful.
 FORMATTING RULES FOR WHATSAPP:
 - Use *asterisks* for bold text (e.g., *bold*).
 - Use _underscores_ for italic text (e.g., _italic_).
