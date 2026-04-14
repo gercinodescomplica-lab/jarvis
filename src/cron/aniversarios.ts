@@ -1,9 +1,5 @@
-import { GoogleAuth } from 'google-auth-library';
-import path from 'path';
-
 const SPREADSHEET_ID = process.env.BIRTHDAY_SPREADSHEET_ID || '1tlvcD2t8IR9DIoAatJNullKneZJHXQm7xK7B8enpDOc';
 const SHEET_RANGE = 'A:E'; // Diretoria | Aniversariante | Data (DD/MM) | vazio | Data completa (DD/MM/YYYY)
-const CREDENTIALS_PATH = path.resolve(process.cwd(), 'google-credentials.json');
 
 interface Aniversariante {
   diretoria: string;
@@ -12,24 +8,13 @@ interface Aniversariante {
   anosCompletos: number;
 }
 
-async function getAccessToken(): Promise<string> {
-  const auth = new GoogleAuth({
-    keyFile: CREDENTIALS_PATH,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-  });
-  const client = await auth.getClient();
-  const tokenResponse = await client.getAccessToken();
-  if (!tokenResponse.token) throw new Error('[Aniversários] Não foi possível obter token de acesso.');
-  return tokenResponse.token;
-}
-
 async function lerPlanilha(): Promise<string[][]> {
-  const token = await getAccessToken();
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${SHEET_RANGE}`;
+  const apiKey = process.env.GOOGLE_SHEETS_API_KEY;
+  if (!apiKey) throw new Error('[Aniversários] GOOGLE_SHEETS_API_KEY não configurada.');
 
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(SHEET_RANGE)}?key=${apiKey}`;
+
+  const response = await fetch(url);
 
   if (!response.ok) {
     const err = await response.text();
