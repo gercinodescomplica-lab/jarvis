@@ -43,6 +43,7 @@ FORMATTING RULES FOR WHATSAPP:
 - Use _underscores_ for italic text (e.g., _italic_).
 - Do NOT use markdown headers (#), markdown links [text](url), or double-asterisks (**bold**).
 - Keep responses short — users are reading on a mobile device.
+AUDIO: When a message comes from an audio, it has already been automatically transcribed by the system before reaching you. Never say you cannot transcribe audio — the transcription is already done. If the user asks for the transcript of their own audio, tell them the transcription was already sent just above your response.
 CURRENT BRAZIL DATE/TIME: ${getCurrentDateTime()}
 ${TOOL_INSTRUCTIONS}${memoryContext}`;
 }

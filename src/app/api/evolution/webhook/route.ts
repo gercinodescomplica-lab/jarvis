@@ -119,6 +119,7 @@ async function inferSubjectFromText(text: string): Promise<string> {
 }
 
 const BOT_MENTION_REGEX = /\bjarvis\b|\bninja\s*search\b|\bninja\b/i;
+const TRANSCRIPT_REQUEST_REGEX = /transcreve|transcrição|transcript|escreve\s+o\s+que|o\s+que\s+(ele|ela|a\s+pessoa)\s+(disse|falou|fala)|passar\s+para\s+texto|texto\s+do\s+áudio/i;
 
 async function processAudio(
   phone: string,
@@ -148,6 +149,11 @@ async function processAudio(
     if (options.requireMention && !BOT_MENTION_REGEX.test(text)) {
       logger.info(` Áudio em grupo transcrito mas bot não mencionado: "${text.slice(0, 80)}"`);
       return;
+    }
+
+    // Sempre retorna a transcrição para o usuário ver o texto do áudio
+    if (!options.requireMention) {
+      await enviarAvisoWhatsApp(phone, `🎤 *Transcrição:*\n_${text}_`);
     }
 
     await processMessage(phone, text, 'audio', options.senderPhone);
@@ -528,6 +534,38 @@ export async function POST(req: Request) {
       } else {
         processAudio(phone, key, msgData, mimetype, audioOptions).catch(e => logger.error(' Error:', e));
       }
+      return NextResponse.json({ success: true });
+    }
+
+    // ── Áudio citado/respondido com pedido de transcrição ─────────────────────
+    // Quando o usuário responde a um áudio com "me transcreve", o áudio vem
+    // dentro de contextInfo.quotedMessage — e seria ignorado sem este bloco.
+    const quotedCtx = msgData?.extendedTextMessage?.contextInfo;
+    const quotedAudioData = quotedCtx?.quotedMessage?.audioMessage || quotedCtx?.quotedMessage?.pttMessage;
+    const captionText = msgData?.extendedTextMessage?.text || '';
+
+    if (phone && quotedAudioData && TRANSCRIPT_REQUEST_REGEX.test(captionText)) {
+      const authorized = await checkAuthorization(phone, isGroup, isGroup ? phone : null);
+      if (!authorized) return NextResponse.json({ status: 'unauthorized' });
+
+      const quotedMimetype = quotedAudioData.mimetype || 'audio/ogg; codecs=opus';
+      const quotedKey = quotedCtx?.quotedMessageKey || {};
+
+      waitUntil((async () => {
+        await markAsReading(phone);
+        const buffer = await downloadMedia(quotedKey, quotedCtx?.quotedMessage);
+        if (!buffer) {
+          await enviarAvisoWhatsApp(phone, '❌ Não consegui acessar o áudio citado. Tente encaminhar o áudio diretamente.');
+          return;
+        }
+        const transcript = await transcribeAudio(buffer, quotedMimetype);
+        if (!transcript) {
+          await enviarAvisoWhatsApp(phone, '❌ Não consegui transcrever o áudio. Pode tentar novamente?');
+          return;
+        }
+        await enviarAvisoWhatsApp(phone, `🎤 *Transcrição:*\n_${transcript}_`);
+      })());
+
       return NextResponse.json({ success: true });
     }
 

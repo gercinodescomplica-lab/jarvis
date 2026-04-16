@@ -27,3 +27,27 @@ export interface Document {
   total_chunks: number;
   created_at: number;
 }
+
+export interface EmailMailboxConfig {
+  mailbox: string;
+  label: string;
+  whatsapp_phone: string;
+  active: boolean;
+  created_at: string;
+}
+
+export interface MonitoredSender {
+  id: string;
+  mailbox: string;
+  sender_email: string;
+  sender_name: string;
+  priority: 'high' | 'medium' | 'low';
+  active: boolean;
+  created_at: string;
+}
+
+export interface EmailDeltaToken {
+  mailbox: string;
+  delta_link: string;
+  updated_at: string;
+}
