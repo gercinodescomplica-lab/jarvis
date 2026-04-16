@@ -2,7 +2,7 @@ import { GraphCalendarAdapter } from '@jarvis/adapters/src/ms-graph';
 
 const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL;
 const EVOLUTION_API_TOKEN = process.env.EVOLUTION_API_TOKEN;
-const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE || 'LiciMonitor';
+const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE || 'Jarvis';
 
 export async function enviarAvisoWhatsApp(telefone: string, mensagemTexto: string) {
   const payload = { number: telefone, text: mensagemTexto, linkPreview: false };

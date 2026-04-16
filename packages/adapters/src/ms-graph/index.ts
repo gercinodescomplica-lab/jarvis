@@ -39,7 +39,6 @@ export class GraphCalendarAdapter implements CalendarPort {
             try {
                 const result = await this.client
                     .api(`/users/${email}/calendarView`)
-                    .header('Prefer', 'outlook.timezone="E. South America Standard Time"')
                     .query({
                         startDateTime: startISO,
                         endDateTime: endISO,
