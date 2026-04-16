@@ -20,6 +20,10 @@ export function middleware(request: NextRequest) {
   const cookieToken = request.cookies.get('frontend_token')?.value;
   const adminCookieToken = request.cookies.get('admin_token')?.value;
 
+  // Se FRONTEND_ACCESS_TOKEN não estiver configurado, libera acesso
+  // (evita bloqueio total em ambientes sem a variável definida)
+  if (!storedToken) return NextResponse.next();
+
   // Admin routes: check admin cookie, redirect to login if missing
   if (pathname.startsWith('/admin')) {
     if (pathname === '/admin/login') return NextResponse.next();
