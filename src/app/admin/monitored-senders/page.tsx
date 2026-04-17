@@ -34,6 +34,7 @@ export default function MonitoredSendersPage() {
   // Modal caixa
   const [showMailboxForm, setShowMailboxForm] = useState(false);
   const [mbForm, setMbForm]             = useState(emptyMailboxForm);
+  const [editMailbox, setEditMailbox]   = useState<string | null>(null);
   const [savingMb, setSavingMb]         = useState(false);
 
   const loadMailboxes = async () => {
@@ -82,13 +83,24 @@ export default function MonitoredSendersPage() {
   };
 
   // ── Caixas ──────────────────────────────────────────────────────────────────
+  const openAddMailbox = () => { setMbForm(emptyMailboxForm); setEditMailbox(null); setShowMailboxForm(true); };
+  const openEditMailbox = (mb: Mailbox) => { setMbForm({ mailbox: mb.mailbox, label: mb.label, whatsapp_phone: mb.whatsapp_phone }); setEditMailbox(mb.mailbox); setShowMailboxForm(true); };
+
   const saveMailbox = async () => {
-    if (!mbForm.mailbox || !mbForm.label || !mbForm.whatsapp_phone) return;
+    if (!mbForm.label || !mbForm.whatsapp_phone) return;
     setSavingMb(true);
-    await fetch('/api/admin/email-mailbox-configs', { method: 'POST', headers, body: JSON.stringify(mbForm) });
+    if (editMailbox) {
+      const payload: any = { label: mbForm.label, whatsapp_phone: mbForm.whatsapp_phone };
+      if (mbForm.mailbox !== editMailbox) payload.new_mailbox = mbForm.mailbox;
+      await fetch(`/api/admin/email-mailbox-configs/${encodeURIComponent(editMailbox)}`, { method: 'PATCH', headers, body: JSON.stringify(payload) });
+      if (selectedMb === editMailbox && mbForm.mailbox !== editMailbox) setSelectedMb(mbForm.mailbox);
+    } else {
+      if (!mbForm.mailbox) return;
+      await fetch('/api/admin/email-mailbox-configs', { method: 'POST', headers, body: JSON.stringify(mbForm) });
+      setSelectedMb(mbForm.mailbox);
+    }
     setSavingMb(false); setShowMailboxForm(false); setMbForm(emptyMailboxForm);
     await loadMailboxes();
-    setSelectedMb(mbForm.mailbox);
   };
 
   const toggleMailbox = async (mb: Mailbox) => {
@@ -128,7 +140,7 @@ export default function MonitoredSendersPage() {
             <Inbox size={16} className="text-primary" /> Caixas Monitoradas
           </div>
           <button
-            onClick={() => { setMbForm(emptyMailboxForm); setShowMailboxForm(true); }}
+            onClick={openAddMailbox}
             className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
           >
             <Plus size={14} /> Adicionar caixa
@@ -139,18 +151,26 @@ export default function MonitoredSendersPage() {
             <p className="text-sm text-muted-foreground">Nenhuma caixa configurada ainda.</p>
           )}
           {mailboxes.map(mb => (
-            <button
-              key={mb.mailbox}
-              onClick={() => setSelectedMb(mb.mailbox)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
-                selectedMb === mb.mailbox
-                  ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/20'
-                  : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground'
-              }`}
-            >
-              <span className={`w-2 h-2 rounded-full ${mb.active ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`} />
-              {mb.label}
-            </button>
+            <div key={mb.mailbox} className="flex items-center gap-1">
+              <button
+                onClick={() => setSelectedMb(mb.mailbox)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
+                  selectedMb === mb.mailbox
+                    ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/20'
+                    : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${mb.active ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`} />
+                {mb.label}
+              </button>
+              <button
+                onClick={() => openEditMailbox(mb)}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                title="Editar caixa"
+              >
+                <Pencil size={13} />
+              </button>
+            </div>
           ))}
         </div>
       </div>
@@ -356,7 +376,7 @@ export default function MonitoredSendersPage() {
         <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in zoom-in-95 duration-200">
           <div className="bg-card border border-border/50 rounded-2xl p-6 w-full max-w-md shadow-2xl flex flex-col gap-6">
             <div>
-              <h2 className="text-xl font-bold">Nova Caixa Monitorada</h2>
+              <h2 className="text-xl font-bold">{editMailbox ? 'Editar Caixa' : 'Nova Caixa Monitorada'}</h2>
               <p className="text-sm text-muted-foreground mt-1">Configure o email e o WhatsApp de notificação.</p>
             </div>
 
@@ -364,12 +384,15 @@ export default function MonitoredSendersPage() {
               <div className="space-y-2">
                 <label className="text-sm font-medium">Email da caixa</label>
                 <input
-                  className="w-full bg-muted/50 border border-border rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all"
+                  className="w-full bg-muted/50 border border-border rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all disabled:opacity-50"
                   value={mbForm.mailbox}
                   onChange={e => setMbForm(f => ({ ...f, mailbox: e.target.value.toLowerCase().trim() }))}
                   placeholder="tiagoluz@prodam.sp.gov.br"
                   type="email"
                 />
+                {editMailbox && mbForm.mailbox !== editMailbox && (
+                  <p className="text-xs text-amber-500 mt-1">⚠️ Alterar o email migra todos os remetentes para a nova caixa.</p>
+                )}
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Nome / Label</label>
@@ -397,7 +420,7 @@ export default function MonitoredSendersPage() {
               </button>
               <button
                 onClick={saveMailbox}
-                disabled={savingMb || !mbForm.mailbox || !mbForm.label || !mbForm.whatsapp_phone}
+                disabled={savingMb || (!editMailbox && !mbForm.mailbox) || !mbForm.label || !mbForm.whatsapp_phone}
                 className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-primary/20 min-w-[100px]"
               >
                 {savingMb ? 'Salvando...' : 'Salvar'}
