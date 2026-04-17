@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Users, BrainCircuit, FileText, BellRing, CalendarDays, Zap, BarChart2, ClipboardList } from 'lucide-react';
+import { LayoutDashboard, Users, BrainCircuit, FileText, BellRing, CalendarDays, Zap, BarChart2, ClipboardList, Mail } from 'lucide-react';
 
 const navItems = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
@@ -11,6 +11,7 @@ const navItems = [
   { href: '/admin/documents', label: 'Documentos', icon: FileText },
   { href: '/admin/reminders', label: 'Lembretes', icon: BellRing },
   { href: '/admin/agenda', label: 'Agenda Tiago', icon: CalendarDays },
+  { href: '/admin/monitored-senders', label: 'Emails Monitorados', icon: Mail },
   { href: '/admin/analytics', label: 'Analytics', icon: BarChart2 },
   { href: '/admin/audit', label: 'Audit Log', icon: ClipboardList },
 ];

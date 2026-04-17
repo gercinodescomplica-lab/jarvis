@@ -3,7 +3,7 @@ import { monitorarEmailsChave } from '../cron/email-monitor';
 
 export const emailMonitorTask = schedules.task({
   id: 'monitorar-emails-chave',
-  cron: '*/30 * * * *', // a cada 30 minutos
+  cron: '*/10 * * * *', // a cada 10 minutos
   run: async () => {
     console.log('[EmailMonitor] Iniciando verificação de emails...');
     await monitorarEmailsChave();
