@@ -1,0 +1,26 @@
+{
+  "users": {
+    "5511949633602": {
+      "name": "Gercino",
+      "permission": "can_store_memory"
+    },
+    "5516981317391": {
+      "name": "Nova usuária",
+      "permission": "all"
+    }
+  },
+  "groups": {
+    "Test-Jarvis8": {
+      "jid": "120363425010406850@g.us",
+      "permission": "send_and_receive"
+    },
+    "Jarvis-Prodam": {
+      "jid": "120363424207983724@g.us",
+      "permission": "send_and_receive"
+    },
+    "Grupo-Ge": {
+      "jid": "120363420097358880@g.us",
+      "permission": "send_and_receive"
+    }
+  }
+}
