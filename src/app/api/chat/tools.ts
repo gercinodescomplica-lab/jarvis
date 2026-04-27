@@ -746,7 +746,7 @@ export const createListarEmailsRemetenteTool = (phone: string) => tool({
                 description: new Date(e.receivedDateTime).toLocaleDateString('pt-BR', {
                     timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit',
                 }),
-                rowId: String(idx + 1),
+                rowId: `sel${idx + 1}`,
             }));
 
             const emailsSummary = emails.map((e: any) => ({
