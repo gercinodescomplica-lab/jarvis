@@ -151,6 +151,23 @@ export class GraphCalendarAdapter implements CalendarPort, EmailPort {
         return { emails, nextDeltaLink };
     }
 
+    async searchEmailsFromSender(mailbox: string, senderEmail: string, top = 5): Promise<any[]> {
+        try {
+            const result = await this.client
+                .api(`/users/${mailbox}/messages`)
+                .query({
+                    $search: `"from:${senderEmail}"`,
+                    $select: 'id,subject,from,receivedDateTime,bodyPreview,isRead',
+                    $top: top,
+                })
+                .get();
+            return result.value || [];
+        } catch (error) {
+            console.error(`Error searching emails from ${senderEmail}:`, error);
+            throw error;
+        }
+    }
+
     async getFullEmail(mailbox: string, messageId: string): Promise<any> {
         try {
             const result = await this.client

@@ -700,44 +700,25 @@ export const createListarEmailsRemetenteTool = (phone: string) => tool({
             }
 
             const adapter = new GraphCalendarAdapter();
-            let senderEmail: string;
-            let senderName: string;
 
-            // 1. Tenta achar na whitelist de remetentes monitorados
-            const { data: senders } = await supabase
-                .from('monitored_senders')
-                .select('sender_email, sender_name')
-                .eq('mailbox', mailboxConfig.mailbox)
-                .eq('active', true)
-                .ilike('sender_name', `%${nomeRemetente}%`)
-                .limit(1);
+            // Passo 1: acha o endereço exato do remetente nos 50 emails mais recentes
+            const recent = await adapter.getEmailsForUser(mailboxConfig.mailbox, { top: 50 });
+            const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+            const query = norm(nomeRemetente);
+            const match = recent.find((e: any) =>
+                norm(e.from?.emailAddress?.name || '').includes(query) ||
+                norm(e.from?.emailAddress?.address || '').includes(query)
+            );
 
-            if (senders && senders.length > 0) {
-                senderEmail = senders[0].sender_email;
-                senderName = senders[0].sender_name;
-            } else {
-                // 2. Fallback: busca nos últimos 100 emails da caixa e filtra por nome
-                const recent = await adapter.getEmailsForUser(mailboxConfig.mailbox, { top: 100 });
-                const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-                const query = norm(nomeRemetente);
-                const match = recent.find((e: any) => {
-                    const fromName = norm(e.from?.emailAddress?.name || '');
-                    const fromAddr = norm(e.from?.emailAddress?.address || '');
-                    return fromName.includes(query) || fromAddr.includes(query);
-                });
-                if (!match) {
-                    return { error: `Nenhum email encontrado de "${nomeRemetente}" na caixa de entrada.` };
-                }
-                senderEmail = match.from.emailAddress.address;
-                senderName = match.from.emailAddress.name || senderEmail;
+            if (!match) {
+                return { error: `Nenhum email encontrado de "${nomeRemetente}" nos últimos 50 emails da caixa.` };
             }
 
-            // Busca 50 para garantir os mais recentes (Graph sem $orderby retorna ordem aleatória)
-            const allEmails = await adapter.getEmailsForUser(mailboxConfig.mailbox, {
-                fromSenders: [senderEmail],
-                top: 50,
-            });
-            const emails = allEmails.slice(0, 5);
+            const senderEmail: string = match.from.emailAddress.address;
+            const senderName: string = match.from.emailAddress.name || senderEmail;
+
+            // Passo 2: busca os 5 mais recentes via $search (sem InefficientFilter)
+            const emails = await adapter.searchEmailsFromSender(mailboxConfig.mailbox, senderEmail, 5);
 
             if (!emails || emails.length === 0) {
                 return { success: true, message: `Nenhum email encontrado de ${senderName}.` };
