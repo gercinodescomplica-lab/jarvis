@@ -118,13 +118,11 @@ export async function enviarListaWhatsApp(
           headers: evolutionHeaders(),
           body: JSON.stringify({
             number: telefoneLimpo,
-            listMessage: {
-              title: titulo,
-              description: descricao,
-              buttonText: 'Ver emails',
-              footerText: 'Jarvis',
-              sections: [{ title: 'Selecione um email', rows }],
-            },
+            title: titulo,
+            description: descricao,
+            buttonText: 'Ver emails',
+            footerText: 'Jarvis',
+            sections: [{ title: 'Selecione um email', rows }],
           }),
         }
       );
