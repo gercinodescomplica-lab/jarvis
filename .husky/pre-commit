@@ -1,6 +1,11 @@
 #!/bin/sh
+STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|js|jsx)$')
+if [ -z "$STAGED" ]; then
+  exit 0
+fi
+
 echo "🔍 Biome lint (arquivos alterados)..."
-npx biome lint --changed --since=HEAD .
+npx biome lint .
 if [ $? -ne 0 ]; then
   echo "❌ Biome encontrou erros. Corrija antes de commitar."
   exit 1
