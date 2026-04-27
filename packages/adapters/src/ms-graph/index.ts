@@ -76,16 +76,27 @@ export class GraphCalendarAdapter implements CalendarPort, EmailPort {
         }
 
         try {
+            const query: Record<string, any> = {
+                $select: 'subject,from,receivedDateTime,bodyPreview,isRead',
+                $top: top,
+            };
+            if (filters.length > 0) {
+                // $orderby cannot be combined with $filter on from/* fields (InefficientFilter)
+                query['$filter'] = filters.join(' and ');
+            } else {
+                query['$orderby'] = 'receivedDateTime desc';
+            }
             const result = await this.client
                 .api(`/users/${userEmail}/mailFolders/inbox/messages`)
-                .query({
-                    $select: 'subject,from,receivedDateTime,bodyPreview,isRead',
-                    $orderby: 'receivedDateTime desc',
-                    $top: top,
-                    ...(filters.length > 0 ? { $filter: filters.join(' and ') } : {})
-                })
+                .query(query)
                 .get();
-            return result.value || [];
+            const emails = result.value || [];
+            if (filters.length > 0) {
+                emails.sort((a: any, b: any) =>
+                    new Date(b.receivedDateTime).getTime() - new Date(a.receivedDateTime).getTime()
+                );
+            }
+            return emails;
         } catch (error) {
             console.error(`Error fetching emails for ${userEmail}:`, error);
             throw error;

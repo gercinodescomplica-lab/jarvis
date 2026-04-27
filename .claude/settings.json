@@ -8,7 +8,17 @@
       "Bash(npx husky *)",
       "Bash(chmod +x /Users/User/Documents/Development/jarvis_v2/.husky/pre-push)",
       "Bash(chmod +x /Users/User/Documents/Development/jarvis_v2/.husky/pre-commit)",
-      "Bash(npx tsx *)"
+      "Bash(npx tsx *)",
+      "Bash(git -C /Users/User/Documents/Development/jarvis_v2 status)",
+      "Bash(git -C /Users/User/Documents/Development/jarvis_v2 log --oneline -5)",
+      "Bash(git -C /Users/User/Documents/Development/jarvis_v2 show 13f9d6c8 --name-only)",
+      "Bash(git -C /Users/User/Documents/Development/jarvis_v2 show 546770b0 --name-only)",
+      "Bash(git -C /Users/User/Documents/Development/jarvis_v2 ls-files test-calendar.ts)",
+      "Bash(git -C /Users/User/Documents/Development/jarvis_v2 rm test-calendar.ts)",
+      "Bash(git -C /Users/User/Documents/Development/jarvis_v2 commit -m \"chore: remove test-calendar.ts script that was breaking Vercel build\")",
+      "Bash(git -C /Users/User/Documents/Development/jarvis_v2 log --oneline --all -- test-calendar.ts)",
+      "Bash(git -C /Users/User/Documents/Development/jarvis_v2 show c9cc9185 --name-status)",
+      "Bash(git -C /Users/User/Documents/Development/jarvis_v2 log --oneline)"
     ]
   }
 }
