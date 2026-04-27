@@ -181,6 +181,10 @@ Timestamp da API: ${drmData.timestamp}
         const pendingCX = m.cx.filter(c => c.status === 'pendente').length;
         const highCX = m.cx.filter(c => c.criticidade === 'alta').length;
 
+        const visitsList = m.visits.length > 0
+            ? m.visits.map(v => `    - ${v.data}${v.dataFim ? ` até ${v.dataFim}` : ''}: ${v.titulo}${v.local ? ` (${v.local})` : ''}`).join('\n')
+            : '    (nenhuma visita registrada)';
+
         return `
 ### Gerente: ${m.name} (${m.role})
 - Meta: ${fmt(m.meta)}
@@ -194,6 +198,7 @@ ${clientsList}
 ${pipelineSummary || '    (sem pipeline cadastrado)'}
 - CX: ${m.cx.length} chamados (${pendingCX} pendentes, ${highCX} de criticidade alta)
 - Visitas: ${m.visits.length} registradas
+${visitsList}
 `.trim();
     }).join('\n\n');
 

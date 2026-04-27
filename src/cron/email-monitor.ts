@@ -2,6 +2,8 @@ import { GraphCalendarAdapter } from '@jarvis/adapters/src/ms-graph';
 import { supabase } from '@/db';
 import { enviarAvisoWhatsApp } from '@/lib/evolution-client';
 import { createLogger } from '@/lib/logger';
+import { generateText } from 'ai';
+import { getModel } from '@/lib/ai-provider';
 
 const logger = createLogger('email-monitor');
 
@@ -134,12 +136,41 @@ async function processarCaixa(
       hour: '2-digit',
       minute: '2-digit',
     });
-    const preview = (e.bodyPreview ?? '').slice(0, 120).replace(/\n/g, ' ');
+
+    let aiSummary = '';
+    try {
+      let emailContent = e.body?.content;
+      
+      // Se o Delta payload vier sem o body, buscamos o email completo por ID
+      if (!emailContent) {
+        try {
+          const fullE = await adapter.getFullEmail(mailbox, e.id);
+          emailContent = fullE.body?.content || e.bodyPreview || '';
+        } catch (err) {
+          logger.error(`[EmailMonitor] Falha ao buscar full email ${e.id}`, err);
+          emailContent = e.bodyPreview || '';
+        }
+      }
+
+      // Limite de 30000 caracteres para evitar timeouts desnecessários
+      const contentToAnalyze = emailContent.length > 30000 ? emailContent.substring(0, 30000) : emailContent;
+
+      const result = await generateText({
+        model: getModel(),
+        system: 'Você é um assistente executivo analisando emails recebidos. O usuário forneceu o conteúdo completo (ou HTML) de uma thread de email. Sua tarefa:\n1. Faça um resumo super conciso do que está rolando na thread.\n2. Liste as ações que o usuário precisa tomar (se deve responder, se tem encaminhamentos propostos, etc.). Se não houver ação, diga "Nenhuma ação imediata necessária".\nUse tom profissional, seja direto e use bullet points. Não use saudações. NUNCA invente informações.',
+        messages: [{ role: 'user', content: contentToAnalyze }],
+      });
+      aiSummary = result.text.trim();
+    } catch (err) {
+      logger.error('[EmailMonitor] Erro na sumarização por IA', err);
+      const preview = (e.bodyPreview ?? '').slice(0, 120).replace(/\n/g, ' ');
+      aiSummary = `_"${preview}..."_`;
+    }
 
     msg += `${emoji} *${e._sender.sender_name}* — ${prioLabel}\n`;
-    msg += `🕐 ${receivedAt} · 📌 ${e.subject}\n`;
-    if (preview) msg += `_"${preview}..."_\n`;
-    msg += '\n';
+    msg += `🕐 ${receivedAt} · 📌 *${e.subject}*\n\n`;
+    msg += `${aiSummary}\n`;
+    msg += '────────────────────\n\n';
   }
 
   msg += `_${relevantes.length} email(s) de remetentes monitorados_`;

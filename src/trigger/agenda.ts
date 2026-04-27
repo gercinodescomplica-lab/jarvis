@@ -4,13 +4,28 @@ import { getAgendaSemana, enviarAvisoWhatsApp } from "../cron/agenda";
 export const sendAgendaTask = schedules.task({
   id: "enviar-agenda-diaria",
   cron: "0 0 * * *", // 00h UTC = 21h BRT (UTC-3)
-  run: async (payload, { ctx }) => {
-    console.log("[Trigger.dev] ⏰ Iniciando envio de agenda do Tiago...");
+  run: async () => {
+    console.log("[Agenda] ⏰ Iniciando envio de agenda do Tiago...");
 
-    // Lista de destinatários: número principal + Dani + extras via env var
+    // Descobre qual é "amanhã" no horário de Brasília
+    const nowBRT = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+    const tomorrow = new Date(nowBRT);
+    tomorrow.setDate(nowBRT.getDate() + 1);
+    const tomorrowDow = tomorrow.getDay(); // 0=Dom, 1=Seg ... 6=Sab
+
+    const isTomorrowWeekend = tomorrowDow === 0 || tomorrowDow === 6; // Domingo ou Sábado
+
+    const { relatorio, hasEvents } = await getAgendaSemana();
+
+    // Regra do fim de semana: sexta → sábado e sábado → domingo só envia se tiver eventos
+    if (isTomorrowWeekend && !hasEvents) {
+      console.log(`[Agenda] 🔕 Amanhã é fim de semana sem eventos — silêncio.`);
+      return;
+    }
+
     const primary = process.env.TARGET_WHATSAPP_GROUP || "5511949633602";
-    const dani = "5516981317391"; // Danielle Oliveira
-    const grupoGe = "120363420097358880@g.us"; // Grupo Ge
+    const dani = "5516981317391";
+    const grupoGe = "120363420097358880@g.us";
     const extra = (process.env.AGENDA_EXTRA_RECIPIENTS || "")
       .split(",")
       .map(n => n.trim())
@@ -18,16 +33,9 @@ export const sendAgendaTask = schedules.task({
 
     const recipients = [...new Set([primary, dani, grupoGe, ...extra])];
 
-    try {
-      const relatorio = await getAgendaSemana();
-
-      for (const dest of recipients) {
-        await enviarAvisoWhatsApp(dest, relatorio);
-        console.log(`[Trigger.dev] ✅ Agenda enviada para ${dest}.`);
-      }
-    } catch (error) {
-      console.error("[Trigger.dev] ❌ Erro ao enviar agenda:", error);
-      throw error;
+    for (const dest of recipients) {
+      await enviarAvisoWhatsApp(dest, relatorio);
+      console.log(`[Agenda] ✅ Agenda enviada para ${dest}.`);
     }
   },
 });

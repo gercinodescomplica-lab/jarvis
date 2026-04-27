@@ -11,6 +11,7 @@ import { fetchDRMData, formatDRMContext } from '@/lib/drm-service';
 import { supabase } from '@/db';
 import { saveMemory, getMemoryContext } from '@/lib/memory-service';
 import { configure, runs } from '@trigger.dev/sdk/v3';
+import { enviarListaWhatsApp } from '@/lib/evolution-client';
 
 // ─── Tools com CACHE (leitura) ───────────────────────────────────────────────
 // Cada uma tem um TTL diferente baseado em quão rápido os dados mudam.
@@ -671,4 +672,113 @@ export const cancelReminderTool = (phone: string) => tool({
             return { error: 'Falha ao cancelar o lembrete: ' + e.message };
         }
     }
+});
+
+export const createListarEmailsRemetenteTool = (phone: string) => tool({
+    description: 'Busca os últimos emails de um remetente específico na caixa configurada para este usuário e envia lista interativa WhatsApp para seleção. Use quando o usuário pedir para ver emails de uma pessoa (ex: "quero ver os emails do Francisco", "últimos emails da Maria", "lê os emails do Tiago").',
+    inputSchema: jsonSchema<{ nomeRemetente: string }>({
+        type: 'object',
+        properties: {
+            nomeRemetente: { type: 'string', description: 'Nome do remetente (ex: "Francisco", "Maria Silva")' },
+        },
+        required: ['nomeRemetente'],
+        additionalProperties: false,
+    }),
+    execute: async ({ nomeRemetente }) => {
+        try {
+            const cleanPhone = phone.replace(/\D/g, '');
+
+            const { data: mailboxConfig } = await supabase
+                .from('email_mailbox_configs')
+                .select('mailbox')
+                .eq('whatsapp_phone', cleanPhone)
+                .eq('active', true)
+                .maybeSingle();
+
+            if (!mailboxConfig) {
+                return { error: 'Nenhuma caixa de email configurada para este número de WhatsApp.' };
+            }
+
+            const adapter = new GraphCalendarAdapter();
+            let senderEmail: string;
+            let senderName: string;
+
+            // 1. Tenta achar na whitelist de remetentes monitorados
+            const { data: senders } = await supabase
+                .from('monitored_senders')
+                .select('sender_email, sender_name')
+                .eq('mailbox', mailboxConfig.mailbox)
+                .eq('active', true)
+                .ilike('sender_name', `%${nomeRemetente}%`)
+                .limit(1);
+
+            if (senders && senders.length > 0) {
+                senderEmail = senders[0].sender_email;
+                senderName = senders[0].sender_name;
+            } else {
+                // 2. Fallback: busca nos últimos 100 emails da caixa e filtra por nome
+                const recent = await adapter.getEmailsForUser(mailboxConfig.mailbox, { top: 100 });
+                const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+                const query = norm(nomeRemetente);
+                const match = recent.find((e: any) => {
+                    const fromName = norm(e.from?.emailAddress?.name || '');
+                    const fromAddr = norm(e.from?.emailAddress?.address || '');
+                    return fromName.includes(query) || fromAddr.includes(query);
+                });
+                if (!match) {
+                    return { error: `Nenhum email encontrado de "${nomeRemetente}" na caixa de entrada.` };
+                }
+                senderEmail = match.from.emailAddress.address;
+                senderName = match.from.emailAddress.name || senderEmail;
+            }
+
+            const emails = await adapter.getEmailsForUser(mailboxConfig.mailbox, {
+                fromSenders: [senderEmail],
+                top: 5,
+            });
+
+            if (!emails || emails.length === 0) {
+                return { success: true, message: `Nenhum email encontrado de ${senderName}.` };
+            }
+
+            const rows = emails.map((e: any) => ({
+                title: (e.subject || '(sem assunto)').slice(0, 24),
+                description: new Date(e.receivedDateTime).toLocaleDateString('pt-BR', {
+                    timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit',
+                }),
+                rowId: `email:${e.id}`,
+            }));
+
+            const emailsSummary = emails.map((e: any) => ({
+                id: e.id,
+                subject: e.subject || '(sem assunto)',
+                date: e.receivedDateTime,
+            }));
+
+            await supabase.from('chats').delete().eq('phone', phone).eq('role', 'pending');
+            await supabase.from('chats').insert({
+                phone,
+                role: 'pending',
+                content: JSON.stringify({
+                    action: 'awaiting_email_selection',
+                    mailbox: mailboxConfig.mailbox,
+                    senderName,
+                    emails: emailsSummary,
+                }),
+                created_at: Date.now(),
+            });
+
+            await enviarListaWhatsApp(
+                phone,
+                `📧 Emails de ${senderName}`,
+                `Últimos ${emails.length} emails recebidos`,
+                rows
+            );
+
+            return { success: true, message: `Lista de ${emails.length} email(s) de ${senderName} enviada.` };
+        } catch (err: any) {
+            logger.error('[Tool] createListarEmailsRemetenteTool error:', err);
+            return { error: err.message || 'Falha ao buscar emails.' };
+        }
+    },
 });

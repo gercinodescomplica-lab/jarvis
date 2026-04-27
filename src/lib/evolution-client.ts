@@ -102,6 +102,44 @@ export async function enviarImagemWhatsApp(telefone: string, imageBase64: string
   ).catch(err => logger.error('Falha ao enviar imagem', err));
 }
 
+export async function enviarListaWhatsApp(
+  telefone: string,
+  titulo: string,
+  descricao: string,
+  rows: Array<{ title: string; description: string; rowId: string }>
+) {
+  const telefoneLimpo = telefone.replace(/\D/g, '');
+  return retryAsync(
+    async () => {
+      const response = await fetch(
+        `${EVOLUTION_API_URL}/message/sendList/${EVOLUTION_INSTANCE}`,
+        {
+          method: 'POST',
+          headers: evolutionHeaders(),
+          body: JSON.stringify({
+            number: telefoneLimpo,
+            listMessage: {
+              title: titulo,
+              description: descricao,
+              buttonText: 'Ver emails',
+              footerText: 'Jarvis',
+              sections: [{ title: 'Selecione um email', rows }],
+            },
+          }),
+        }
+      );
+      if (!response.ok) throw new Error(`Evolution API error: ${await response.text()}`);
+      return response.json();
+    },
+    {
+      attempts: 3,
+      delayMs: 500,
+      onRetry: (attempt, err) =>
+        logger.warn(`enviarListaWhatsApp tentativa ${attempt} falhou`, err),
+    }
+  ).catch(err => logger.error('Falha ao enviar lista WhatsApp', err));
+}
+
 export async function downloadMedia(
   messageKey: unknown,
   messageData: unknown

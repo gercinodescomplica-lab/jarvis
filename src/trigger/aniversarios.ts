@@ -18,15 +18,31 @@ export const aniversariosTask = schedules.task({
     const mensagem = formatarMensagemAniversario(aniversariantes);
     console.log("[Aniversários] Mensagem gerada:\n", mensagem);
 
-    // Destinatários: env var separada por vírgula, ou fallback para o grupo padrão
-    const recipientsRaw = process.env.BIRTHDAY_RECIPIENTS || process.env.TARGET_WHATSAPP_GROUP || "";
-    const recipients = recipientsRaw
-      .split(",")
-      .map((r) => r.trim())
-      .filter(Boolean);
+    // Busca destinatários ativos do Supabase
+    let recipients: string[] = [];
+    try {
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabase = createClient(
+        `https://${process.env.SUPABASE_PROJECT_ID}.supabase.co`,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+      );
+      const { data } = await supabase
+        .from('birthday_recipients')
+        .select('whatsapp_id')
+        .eq('active', true);
+      recipients = (data ?? []).map((r: { whatsapp_id: string }) => r.whatsapp_id);
+    } catch (e) {
+      console.warn('[Aniversários] Falha ao buscar do Supabase, usando env var:', e);
+    }
+
+    // Fallback: env var (compatibilidade)
+    if (recipients.length === 0) {
+      const raw = process.env.BIRTHDAY_RECIPIENTS || process.env.TARGET_WHATSAPP_GROUP || "";
+      recipients = raw.split(",").map(r => r.trim()).filter(Boolean);
+    }
 
     if (recipients.length === 0) {
-      console.warn("[Aniversários] Nenhum destinatário configurado (BIRTHDAY_RECIPIENTS).");
+      console.warn("[Aniversários] Nenhum destinatário configurado.");
       return;
     }
 

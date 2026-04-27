@@ -9,13 +9,15 @@ import { getModel } from '@/lib/ai-provider';
 import { getWhatsAppSystemPrompt } from '@/lib/system-prompts';
 import { createLogger } from '@/lib/logger';
 import { retryAsync } from '@/lib/retry';
-import { enviarAvisoWhatsApp, enviarSticker, enviarImagemWhatsApp, markAsReading, downloadMedia } from '@/lib/evolution-client';
+import { enviarAvisoWhatsApp, enviarSticker, enviarImagemWhatsApp, markAsReading, downloadMedia, enviarListaWhatsApp } from '@/lib/evolution-client';
+import { GraphCalendarAdapter } from '@jarvis/adapters/src/ms-graph';
 import { renderChartToBase64 } from '@/lib/chart-renderer';
 import {
     searchProjects, getCalendarEvents, createProject,
     getProjectDetails, getDRMData, analyzeProjects, createRenderChartTool, searchDocuments, searchNotion,
     createMemoryTool, searchMemoriesTool, deleteMemoryTool,
-    listRemindersTool, cancelReminderTool, updateProjectStatusTool, createWhatsAppReminderTool
+    listRemindersTool, cancelReminderTool, updateProjectStatusTool, createWhatsAppReminderTool,
+    createListarEmailsRemetenteTool,
 } from '@/app/api/chat/tools';
 
 const logger = createLogger('evolution');
@@ -151,8 +153,16 @@ async function processAudio(
       return;
     }
 
-    // Sempre retorna a transcrição para o usuário ver o texto do áudio
-    if (!options.requireMention) {
+    // Detecta se é um comando estruturado (lembrete, salvar memória, etc.)
+    // Nesse caso, o Jarvis executa silenciosamente — a resposta já é auto-explicativa
+    const isCommandIntent =
+      REMINDER_REGEX.test(text) ||
+      /salva\s+isso/i.test(text) ||
+      /\/ajuda/i.test(text);
+
+    // Só mostra transcrição para áudios "soltos" (conversa geral)
+    // Se for um comando, o Jarvis responde diretamente sem repetir o áudio
+    if (!options.requireMention && !isCommandIntent) {
       await enviarAvisoWhatsApp(phone, `🎤 *Transcrição:*\n_${text}_`);
     }
 
@@ -162,6 +172,7 @@ async function processAudio(
     if (!options.requireMention) await enviarAvisoWhatsApp(phone, '❌ Erro ao processar o áudio. Tente novamente.');
   }
 }
+
 
 // ─── Parser de lembretes via LLM ──────────────────────────────────────────────
 
@@ -242,6 +253,66 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
         await saveMemory(`[${title}] ${pending.content}`, phone, 'message');
         await supabase.from('chats').delete().eq('phone', phone).eq('role', 'pending');
         await enviarAvisoWhatsApp(phone, `✅ Memorizado com titulo: *${title}*`);
+        return;
+      }
+
+      if (pending.action === 'awaiting_email_selection') {
+        let emailId: string | null = null;
+
+        if (text.startsWith('email:')) {
+          emailId = text.slice(6);
+        } else if (/^[1-5]$/.test(text.trim()) && pending.emails?.length) {
+          const idx = parseInt(text.trim(), 10) - 1;
+          emailId = pending.emails[idx]?.id ?? null;
+        }
+
+        if (!emailId) {
+          await supabase.from('chats').delete().eq('phone', phone).eq('role', 'pending');
+          await enviarAvisoWhatsApp(phone, '❌ Seleção inválida. Tente pedir os emails novamente.');
+          return;
+        }
+
+        const selectedMeta = pending.emails?.find((e: any) => e.id === emailId);
+        await markAsReading(phone);
+        await enviarAvisoWhatsApp(phone, `📧 Buscando *${selectedMeta?.subject || 'email'}*...`);
+
+        try {
+          const adapter = new GraphCalendarAdapter();
+          const fullEmail = await adapter.getFullEmail(pending.mailbox, emailId);
+
+          const rawBody = fullEmail.body?.content || fullEmail.bodyPreview || '';
+          const plainBody = rawBody
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 30000);
+
+          const summaryResult = await generateText({
+            model: getModel(),
+            system: 'Você é um assistente executivo. Faça um resumo conciso do email em português. Use bullet points para múltiplos pontos. Destaque ações necessárias. Máximo 5 bullets ou 3 parágrafos curtos. Nunca invente informações.',
+            messages: [{ role: 'user', content: `Assunto: ${fullEmail.subject}\n\n${plainBody}` }],
+          });
+
+          const date = selectedMeta?.date
+            ? new Date(selectedMeta.date).toLocaleDateString('pt-BR', {
+                timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric',
+              })
+            : '';
+          const fromName = pending.senderName || fullEmail.from?.emailAddress?.name || '';
+          const response = `📧 *${fullEmail.subject}*\n_De: ${fromName}${date ? ` • ${date}` : ''}_\n\n${summaryResult.text.trim()}`;
+
+          await supabase.from('chats').delete().eq('phone', phone).eq('role', 'pending');
+          await supabase.from('chats').insert({ phone, role: 'assistant', content: response, created_at: Date.now() });
+          await enviarAvisoWhatsApp(phone, response);
+        } catch (err: any) {
+          logger.error('[EmailSelection] Erro ao buscar/resumir email:', err);
+          await supabase.from('chats').delete().eq('phone', phone).eq('role', 'pending');
+          await enviarAvisoWhatsApp(phone, '❌ Não consegui carregar o email. Tente novamente.');
+        }
         return;
       }
     }
@@ -335,6 +406,7 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
         listReminders: listRemindersTool(phone),
         cancelReminder: cancelReminderTool(phone),
         updateProjectStatus: updateProjectStatusTool,
+        listarEmailsRemetente: createListarEmailsRemetenteTool(phone),
       },
       stopWhen: stepCountIs(5),
     });
@@ -566,6 +638,22 @@ export async function POST(req: Request) {
         await enviarAvisoWhatsApp(phone, `🎤 *Transcrição:*\n_${transcript}_`);
       })());
 
+      return NextResponse.json({ success: true });
+    }
+
+    // ── WhatsApp list reply (seleção interativa de email) ─────────────────────
+    const listRowId = msgData?.listResponseMessage?.singleSelectReply?.selectedRowId;
+    if (phone && listRowId) {
+      const authorized = await checkAuthorization(phone, isGroup, isGroup ? phone : null);
+      if (!authorized) {
+        logger.info(` Número não autorizado (list reply): ${phone}`);
+        return NextResponse.json({ status: 'unauthorized' });
+      }
+      if (process.env.VERCEL === '1') {
+        waitUntil(processMessage(phone, listRowId, 'text', senderPhone));
+      } else {
+        processMessage(phone, listRowId, 'text', senderPhone).catch(e => logger.error(' Error:', e));
+      }
       return NextResponse.json({ success: true });
     }
 

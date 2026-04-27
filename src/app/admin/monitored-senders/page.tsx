@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useAdminToken } from '../AdminTokenContext';
 import { Plus, Pencil, Trash2, CheckCircle2, XCircle, Search, Mail, Inbox, AlertCircle } from 'lucide-react';
+import { ConfirmModal } from '@/components/ui/confirm-modal';
 
 type Mailbox = { mailbox: string; label: string; whatsapp_phone: string; active: boolean };
 type Sender  = { id: string; mailbox: string; sender_email: string; sender_name: string; priority: 'high' | 'medium' | 'low'; active: boolean; created_at: string };
@@ -37,6 +38,27 @@ export default function MonitoredSendersPage() {
   const [editMailbox, setEditMailbox]   = useState<string | null>(null);
   const [savingMb, setSavingMb]         = useState(false);
 
+  // Confirm modal
+  const [confirmOpen, setConfirmOpen]   = useState(false);
+  const [confirmLoading, setConfirmLoading] = useState(false);
+  const [confirmConfig, setConfirmConfig] = useState<{
+    title: string; description: string; confirmLabel: string; onConfirm: () => Promise<void>;
+  } | null>(null);
+
+  const openConfirm = (config: typeof confirmConfig) => {
+    setConfirmConfig(config);
+    setConfirmOpen(true);
+  };
+
+  const handleConfirm = async () => {
+    if (!confirmConfig) return;
+    setConfirmLoading(true);
+    await confirmConfig.onConfirm();
+    setConfirmLoading(false);
+    setConfirmOpen(false);
+    setConfirmConfig(null);
+  };
+
   const loadMailboxes = async () => {
     const data = await fetch('/api/admin/email-mailbox-configs', { headers }).then(r => r.json());
     setMailboxes(Array.isArray(data) ? data : []);
@@ -71,10 +93,16 @@ export default function MonitoredSendersPage() {
     setSaving(false); setShowForm(false); loadSenders(selectedMb);
   };
 
-  const removeSender = async (id: string, name: string) => {
-    if (!confirm(`Remover "${name}" da lista?`)) return;
-    await fetch(`/api/admin/monitored-senders/${id}`, { method: 'DELETE', headers });
-    loadSenders(selectedMb);
+  const removeSender = (id: string, name: string) => {
+    openConfirm({
+      title: 'Remover remetente',
+      description: `"${name}" será removido da lista de monitorados. Esta ação não pode ser desfeita.`,
+      confirmLabel: 'Remover',
+      onConfirm: async () => {
+        await fetch(`/api/admin/monitored-senders/${id}`, { method: 'DELETE', headers });
+        loadSenders(selectedMb);
+      },
+    });
   };
 
   const toggleActive = async (s: Sender) => {
@@ -106,6 +134,19 @@ export default function MonitoredSendersPage() {
   const toggleMailbox = async (mb: Mailbox) => {
     await fetch(`/api/admin/email-mailbox-configs/${encodeURIComponent(mb.mailbox)}`, { method: 'PATCH', headers, body: JSON.stringify({ active: !mb.active }) });
     loadMailboxes();
+  };
+
+  const removeMailbox = (mb: Mailbox) => {
+    openConfirm({
+      title: `Remover caixa "${mb.label}"`,
+      description: `A caixa ${mb.mailbox} e todos os seus remetentes monitorados serão removidos permanentemente.`,
+      confirmLabel: 'Remover caixa',
+      onConfirm: async () => {
+        await fetch(`/api/admin/email-mailbox-configs/${encodeURIComponent(mb.mailbox)}`, { method: 'DELETE', headers });
+        if (selectedMb === mb.mailbox) setSelectedMb('');
+        await loadMailboxes();
+      },
+    });
   };
 
   const filtered = senders.filter(s =>
@@ -169,6 +210,13 @@ export default function MonitoredSendersPage() {
                 title="Editar caixa"
               >
                 <Pencil size={13} />
+              </button>
+              <button
+                onClick={() => removeMailbox(mb)}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                title="Remover caixa"
+              >
+                <Trash2 size={13} />
               </button>
             </div>
           ))}
@@ -429,6 +477,17 @@ export default function MonitoredSendersPage() {
           </div>
         </div>
       )}
+
+      {/* Confirm Modal */}
+      <ConfirmModal
+        open={confirmOpen}
+        title={confirmConfig?.title ?? ''}
+        description={confirmConfig?.description ?? ''}
+        confirmLabel={confirmConfig?.confirmLabel ?? 'Confirmar'}
+        loading={confirmLoading}
+        onConfirm={handleConfirm}
+        onCancel={() => { setConfirmOpen(false); setConfirmConfig(null); }}
+      />
     </div>
   );
 }

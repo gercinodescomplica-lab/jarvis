@@ -6,7 +6,7 @@ export async function GET(req: Request) {
   const err = validateAdminRequest(req);
   if (err) return err;
   try {
-    const report = await getAgendaSemana();
+    const { relatorio: report } = await getAgendaSemana();
     return NextResponse.json({ report });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });

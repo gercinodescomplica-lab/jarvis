@@ -113,7 +113,7 @@ export class GraphCalendarAdapter implements CalendarPort, EmailPort {
             // Na primeira chamada sem delta, define os campos desejados
             if (!deltaLink) {
                 req.query({
-                    $select: 'subject,from,receivedDateTime,bodyPreview,isRead',
+                    $select: 'subject,from,receivedDateTime,bodyPreview,isRead,body',
                     $top: 50,
                 });
             }
@@ -138,5 +138,20 @@ export class GraphCalendarAdapter implements CalendarPort, EmailPort {
         }
 
         return { emails, nextDeltaLink };
+    }
+
+    async getFullEmail(mailbox: string, messageId: string): Promise<any> {
+        try {
+            const result = await this.client
+                .api(`/users/${mailbox}/messages/${messageId}`)
+                .query({
+                    $select: 'subject,from,receivedDateTime,bodyPreview,isRead,body'
+                })
+                .get();
+            return result;
+        } catch (error) {
+            console.error(`Error fetching full email ${messageId}:`, error);
+            throw error;
+        }
     }
 }

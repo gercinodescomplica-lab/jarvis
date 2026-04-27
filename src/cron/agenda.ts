@@ -22,7 +22,7 @@ export async function enviarAvisoWhatsApp(telefone: string, mensagemTexto: strin
   }
 }
 
-export async function getAgendaSemana() {
+export async function getAgendaSemana(): Promise<{ relatorio: string; hasEvents: boolean }> {
   const adapter = new GraphCalendarAdapter();
   try {
     const targetEmails = ['tiagoluz@prodam.sp.gov.br'];
@@ -47,11 +47,12 @@ export async function getAgendaSemana() {
       month: '2-digit',
     });
 
-    let report = `*🗓️ AGENDA DE AMANHÃ: TIAGO LUZ*\n_${tomorrowDateStr}_\n\n`;
+    let relatorio = `*🗓️ AGENDA DE AMANHÃ: TIAGO LUZ*\n_${tomorrowDateStr}_\n\n`;
+    let hasEvents = false;
 
     results.forEach(r => {
       if (r.error) {
-        report += `❌ Erro ao ler calendário.\n`;
+        relatorio += `❌ Erro ao ler calendário.\n`;
         return;
       }
 
@@ -63,9 +64,11 @@ export async function getAgendaSemana() {
       });
 
       if (tomorrowEvents.length === 0) {
-        report += `✅ Nenhuma reunião programada para amanhã.\n`;
+        relatorio += `✅ Nenhuma reunião programada para amanhã.\n`;
         return;
       }
+
+      hasEvents = true;
 
       const sortedEvents = tomorrowEvents.sort((a: any, b: any) =>
         new Date(a.start.dateTime).getTime() - new Date(b.start.dateTime).getTime()
@@ -80,13 +83,16 @@ export async function getAgendaSemana() {
         if (loc.includes('Google') || loc.includes('Meet')) loc = 'Google Meet';
 
         const locAppend = loc ? ` (${loc})` : '';
-        report += `• ${time} - ${e.subject}${locAppend}\n`;
+        relatorio += `• ${time} - ${e.subject}${locAppend}\n`;
       });
     });
 
-    return report;
+    return { relatorio, hasEvents };
   } catch (error) {
     console.error("[CRON] Erro ao buscar agenda:", error);
-    return "*❌ Jarvis Error:* Não consegui buscar a agenda do Tiago para o resumo de hoje.";
+    return {
+      relatorio: "*❌ Jarvis Error:* Não consegui buscar a agenda do Tiago para o resumo de hoje.",
+      hasEvents: false,
+    };
   }
 }
