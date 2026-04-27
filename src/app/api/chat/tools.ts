@@ -745,7 +745,9 @@ export const createListarEmailsRemetenteTool = (phone: string) => tool({
             }));
 
             await supabase.from('chats').delete().eq('phone', phone).eq('role', 'pending');
-            await supabase.from('chats').insert({
+            logger.info(`[listarEmails] Salvando pending state: phone=${phone} emails=${emailsSummary.length} ids=${emailsSummary.map(e => e.id ? '✅' : '❌').join(',')}`);
+
+            const { error: insertError } = await supabase.from('chats').insert({
                 phone,
                 role: 'pending',
                 content: JSON.stringify({
@@ -756,6 +758,12 @@ export const createListarEmailsRemetenteTool = (phone: string) => tool({
                 }),
                 created_at: Date.now(),
             });
+
+            if (insertError) {
+                logger.error('[listarEmails] FALHA ao salvar pending state:', insertError);
+            } else {
+                logger.info('[listarEmails] Pending state salvo com sucesso');
+            }
 
             const numberedList = emails.map((e: any, idx: number) => {
                 const date = new Date(e.receivedDateTime).toLocaleDateString('pt-BR', {
