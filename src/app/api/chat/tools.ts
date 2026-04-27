@@ -732,10 +732,12 @@ export const createListarEmailsRemetenteTool = (phone: string) => tool({
                 senderName = match.from.emailAddress.name || senderEmail;
             }
 
-            const emails = await adapter.getEmailsForUser(mailboxConfig.mailbox, {
+            // Busca 50 para garantir os mais recentes (Graph sem $orderby retorna ordem aleatória)
+            const allEmails = await adapter.getEmailsForUser(mailboxConfig.mailbox, {
                 fromSenders: [senderEmail],
-                top: 5,
+                top: 50,
             });
+            const emails = allEmails.slice(0, 5);
 
             if (!emails || emails.length === 0) {
                 return { success: true, message: `Nenhum email encontrado de ${senderName}.` };

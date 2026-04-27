@@ -77,7 +77,7 @@ export class GraphCalendarAdapter implements CalendarPort, EmailPort {
 
         try {
             const query: Record<string, any> = {
-                $select: 'subject,from,receivedDateTime,bodyPreview,isRead',
+                $select: 'id,subject,from,receivedDateTime,bodyPreview,isRead',
                 $top: top,
             };
             if (filters.length > 0) {
