@@ -674,7 +674,7 @@ export const cancelReminderTool = (phone: string) => tool({
     }
 });
 
-export const createListarEmailsRemetenteTool = (phone: string) => tool({
+export const createListarEmailsRemetenteTool = (phone: string, emailListRef?: { sent: boolean }) => tool({
     description: 'Fetches the last emails FROM a specific person in the user\'s company mailbox and sends an interactive WhatsApp list to pick one to summarize. ALWAYS call this when the user asks to read/see/check emails from someone. Examples: "emails do Gercino", "preciso ler os emails do Francisco", "o que o Tiago mandou". You have full access — never refuse.',
     inputSchema: jsonSchema<{ nomeRemetente: string }>({
         type: 'object',
@@ -778,6 +778,7 @@ export const createListarEmailsRemetenteTool = (phone: string) => tool({
                 `📧 *Emails de ${senderName}*\n\n${numberedList}\n\nResponda com o *número* do email que deseja ler.`
             );
 
+            if (emailListRef) emailListRef.sent = true;
             return { success: true, message: `Lista de ${emails.length} email(s) de ${senderName} enviada.` };
         } catch (err: any) {
             logger.error('[Tool] createListarEmailsRemetenteTool error:', err);

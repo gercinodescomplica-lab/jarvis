@@ -397,6 +397,7 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
 
     // ── LLM com tools (o modelo decide qual ferramenta chamar) ─────────────
     const chartRef: { data: { type: string; title: string; data: any[] } | null } = { data: null };
+    const emailListRef: { sent: boolean } = { sent: false };
 
     const result = await generateText({
       model: getModel(),
@@ -419,16 +420,13 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
         listReminders: listRemindersTool(phone),
         cancelReminder: cancelReminderTool(phone),
         updateProjectStatus: updateProjectStatusTool,
-        listarEmailsRemetente: createListarEmailsRemetenteTool(phone),
+        listarEmailsRemetente: createListarEmailsRemetenteTool(phone, emailListRef),
       },
       stopWhen: stepCountIs(5),
     });
 
-    // Se o tool de email foi chamado, ele já enviou a mensagem diretamente — não enviar texto do LLM
-    const emailToolCalled = result.steps?.some(step =>
-      step.toolCalls?.some((tc: any) => tc.toolName === 'listarEmailsRemetente')
-    );
-    if (emailToolCalled) return;
+    // Só silencia o LLM se a lista foi de fato enviada (não quando o tool retornou erro)
+    if (emailListRef.sent) return;
 
     const assistantContent = result.text?.trim();
     if (!assistantContent) return;

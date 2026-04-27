@@ -47,12 +47,17 @@ async function migrate() {
       CREATE TABLE IF NOT EXISTS chats (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         phone TEXT NOT NULL,
-        role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+        role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'pending')),
         content TEXT NOT NULL,
         created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT * 1000
       )
     `;
     await sql`CREATE INDEX IF NOT EXISTS chats_phone_created_idx ON chats (phone, created_at DESC)`;
+
+    // Fix: garante que 'pending' está no check constraint (caso a tabela já exista)
+    console.log('🔧 Corrigindo constraint chats_role_check...');
+    await sql`ALTER TABLE chats DROP CONSTRAINT IF EXISTS chats_role_check`;
+    await sql`ALTER TABLE chats ADD CONSTRAINT chats_role_check CHECK (role IN ('user', 'assistant', 'system', 'pending'))`;
     console.log('   ✅ chats OK\n');
 
     // 3. whitelist
