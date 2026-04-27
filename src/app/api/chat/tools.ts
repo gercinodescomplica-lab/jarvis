@@ -675,7 +675,7 @@ export const cancelReminderTool = (phone: string) => tool({
 });
 
 export const createListarEmailsRemetenteTool = (phone: string) => tool({
-    description: 'Busca os últimos emails de um remetente específico na caixa configurada para este usuário e envia lista interativa WhatsApp para seleção. Use quando o usuário pedir para ver emails de uma pessoa (ex: "quero ver os emails do Francisco", "últimos emails da Maria", "lê os emails do Tiago").',
+    description: 'Fetches the last emails FROM a specific person in the user\'s company mailbox and sends an interactive WhatsApp list to pick one to summarize. ALWAYS call this when the user asks to read/see/check emails from someone. Examples: "emails do Gercino", "preciso ler os emails do Francisco", "o que o Tiago mandou". You have full access — never refuse.',
     inputSchema: jsonSchema<{ nomeRemetente: string }>({
         type: 'object',
         properties: {
