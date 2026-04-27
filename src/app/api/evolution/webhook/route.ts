@@ -259,9 +259,7 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
       if (pending.action === 'awaiting_email_selection') {
         let emailId: string | null = null;
 
-        if (text.startsWith('email:')) {
-          emailId = text.slice(6);
-        } else if (/^[1-5]$/.test(text.trim()) && pending.emails?.length) {
+        if (/^[1-5]$/.test(text.trim()) && pending.emails?.length) {
           const idx = parseInt(text.trim(), 10) - 1;
           emailId = pending.emails[idx]?.id ?? null;
         }

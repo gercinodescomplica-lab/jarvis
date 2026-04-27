@@ -741,12 +741,12 @@ export const createListarEmailsRemetenteTool = (phone: string) => tool({
                 return { success: true, message: `Nenhum email encontrado de ${senderName}.` };
             }
 
-            const rows = emails.map((e: any) => ({
+            const rows = emails.map((e: any, idx: number) => ({
                 title: (e.subject || '(sem assunto)').slice(0, 24),
                 description: new Date(e.receivedDateTime).toLocaleDateString('pt-BR', {
                     timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit',
                 }),
-                rowId: `email:${e.id}`,
+                rowId: String(idx + 1),
             }));
 
             const emailsSummary = emails.map((e: any) => ({
