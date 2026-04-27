@@ -412,7 +412,14 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
       stopWhen: stepCountIs(5),
     });
 
-    const assistantContent = result.text || "Desculpe, tive um problema ao processar sua resposta.";
+    // Se o tool de email foi chamado, ele já enviou a mensagem diretamente — não enviar texto do LLM
+    const emailToolCalled = result.steps?.some(step =>
+      step.toolCalls?.some((tc: any) => tc.toolName === 'listarEmailsRemetente')
+    );
+    if (emailToolCalled) return;
+
+    const assistantContent = result.text?.trim();
+    if (!assistantContent) return;
 
     await supabase.from('chats').insert({ phone, role: 'assistant', content: assistantContent, created_at: Date.now() });
 
