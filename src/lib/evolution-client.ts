@@ -108,7 +108,7 @@ export async function enviarListaWhatsApp(
   descricao: string,
   rows: Array<{ title: string; description: string; rowId: string }>
 ) {
-  const telefoneLimpo = telefone.replace(/\D/g, '');
+  const telefoneLimpo = telefone.replace('+', '');
   return retryAsync(
     async () => {
       const response = await fetch(
