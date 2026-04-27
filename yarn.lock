@@ -324,6 +324,25 @@
     "@babel/helper-string-parser" "^7.27.1"
     "@babel/helper-validator-identifier" "^7.28.5"
 
+"@biomejs/biome@^2.4.13":
+  version "2.4.13"
+  resolved "https://registry.npmjs.org/@biomejs/biome/-/biome-2.4.13.tgz"
+  integrity sha512-gLXOwkOBBg0tr7bDsqlkIh4uFeKuMjxvqsrb1Tukww1iDmHcfr4Uu8MoQxp0Rcte+69+osRNWXwHsu/zxT6XqA==
+  optionalDependencies:
+    "@biomejs/cli-darwin-arm64" "2.4.13"
+    "@biomejs/cli-darwin-x64" "2.4.13"
+    "@biomejs/cli-linux-arm64" "2.4.13"
+    "@biomejs/cli-linux-arm64-musl" "2.4.13"
+    "@biomejs/cli-linux-x64" "2.4.13"
+    "@biomejs/cli-linux-x64-musl" "2.4.13"
+    "@biomejs/cli-win32-arm64" "2.4.13"
+    "@biomejs/cli-win32-x64" "2.4.13"
+
+"@biomejs/cli-darwin-arm64@2.4.13":
+  version "2.4.13"
+  resolved "https://registry.npmjs.org/@biomejs/cli-darwin-arm64/-/cli-darwin-arm64-2.4.13.tgz"
+  integrity sha512-2KImO1jhNFBa2oWConyr0x6flxbQpGKv6902uGXpYM62Xyem8U80j441SyUJ8KyngsmKbQjeIv1q2CQfDkNnYg==
+
 "@bugsnag/cuid@^3.1.1":
   version "3.2.2"
   resolved "https://registry.npmjs.org/@bugsnag/cuid/-/cuid-3.2.2.tgz"
@@ -3548,6 +3567,11 @@ humanize-duration@^3.27.3:
   version "3.33.2"
   resolved "https://registry.npmjs.org/humanize-duration/-/humanize-duration-3.33.2.tgz"
   integrity sha512-K7Ny/ULO1hDm2nnhvAY+SJV1skxFb61fd073SG1IWJl+D44ULrruCuTyjHKjBVVcSuTlnY99DKtgEG39CM5QOQ==
+
+husky@^9.1.7:
+  version "9.1.7"
+  resolved "https://registry.npmjs.org/husky/-/husky-9.1.7.tgz"
+  integrity sha512-5gs5ytaNjBrh5Ow3zrvdUUY+0VxIuWVL4i9irt6friV+BqdCfmV11CQTWMiBYWHbXhco+J1kHfTOUkePhCDvMA==
 
 iceberg-js@^0.8.1:
   version "0.8.1"

@@ -9,14 +9,17 @@
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "prepare": "husky",
     "test:webhook": "curl -X POST http://localhost:3000/api/evolution/webhook -H \"Content-Type: application/json\" -d '{\"event\":\"messages.upsert\",\"data\":{\"message\":{\"conversation\":\"Teste do Jarvis via script local!\"},\"key\":{\"remoteJid\":\"5511949633602@s.whatsapp.net\"}}}'",
     "stop_server": "lsof -ti:3000 | xargs kill -9",
     "db:push": "bash scripts/db-push.sh",
     "trigger:deploy": "npx trigger.dev@latest deploy",
     "trigger:dev": "npx trigger.dev@latest dev",
     "migrate": "tsx scripts/migrate-supabase.ts",
-    "test:pdf": "tsx scripts/test-pdf.ts"
+    "test:pdf": "tsx scripts/test-pdf.ts",
+    "prepare": "husky"
   },
   "resolutions": {
     "next/postcss": "^8.4.31"
@@ -62,6 +65,7 @@
     "zod": "3.25.76"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.13",
     "@tailwindcss/postcss": "^4",
     "@trigger.dev/build": "4.4.4",
     "@types/node": "^20",
@@ -75,6 +79,7 @@
     "drizzle-kit": "^0.31.9",
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
+    "husky": "^9.1.7",
     "postcss": "^8",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",

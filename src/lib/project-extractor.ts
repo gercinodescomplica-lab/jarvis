@@ -11,7 +11,7 @@ export function extractProjectCandidates(rawText: string): string[] {
     // Matches "projeto X", "sobre o projeto X", "do projeto X"
     const regexMatch = rawText.match(/(?:projeto|sobre o projeto|do projeto)\s+(.+)/i);
     if (regexMatch) {
-        let clean = cleanText(regexMatch[1]);
+        const clean = cleanText(regexMatch[1]);
         candidates.add(clean);
 
         // Also add version without prepositions if not already there

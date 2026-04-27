@@ -1,0 +1,7 @@
+#!/bin/sh
+echo "🔍 Biome lint (arquivos alterados)..."
+npx biome lint --changed --since=HEAD .
+if [ $? -ne 0 ]; then
+  echo "❌ Biome encontrou erros. Corrija antes de commitar."
+  exit 1
+fi

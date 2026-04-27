@@ -1,0 +1,16 @@
+#!/bin/sh
+echo "🔍 Rodando Biome lint..."
+npx biome lint .
+if [ $? -ne 0 ]; then
+  echo "❌ Biome encontrou erros. Corrija antes de fazer push."
+  exit 1
+fi
+
+echo "🔷 Checando TypeScript..."
+npx tsc --noEmit
+if [ $? -ne 0 ]; then
+  echo "❌ Erros de TypeScript encontrados. Corrija antes de fazer push."
+  exit 1
+fi
+
+echo "✅ Tudo certo! Fazendo push..."
