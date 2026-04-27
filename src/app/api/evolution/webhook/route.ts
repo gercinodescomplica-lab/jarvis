@@ -318,6 +318,9 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
       }
     }
 
+    // ── Guard: número solto sem pending state ativa (evita LLM reprocessar seleção) ──
+    if (/^[1-9]$/.test(text.trim())) return;
+
     // ── Intent de lembrete ────────────────────────────────────────────────────
     if (REMINDER_REGEX.test(text)) {
       const parsed = await parseReminder(text);

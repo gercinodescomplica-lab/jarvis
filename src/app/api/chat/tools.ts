@@ -701,24 +701,30 @@ export const createListarEmailsRemetenteTool = (phone: string) => tool({
 
             const adapter = new GraphCalendarAdapter();
 
-            // Passo 1: acha o endereço exato do remetente nos 50 emails mais recentes
+            // Busca 50 emails recentes para identificar o remetente pelo nome
             const recent = await adapter.getEmailsForUser(mailboxConfig.mailbox, { top: 50 });
             const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
             const query = norm(nomeRemetente);
-            const match = recent.find((e: any) =>
+            const inboxMatches = recent.filter((e: any) =>
                 norm(e.from?.emailAddress?.name || '').includes(query) ||
                 norm(e.from?.emailAddress?.address || '').includes(query)
             );
 
-            if (!match) {
+            if (inboxMatches.length === 0) {
                 return { error: `Nenhum email encontrado de "${nomeRemetente}" nos últimos 50 emails da caixa.` };
             }
 
-            const senderEmail: string = match.from.emailAddress.address;
-            const senderName: string = match.from.emailAddress.name || senderEmail;
+            const senderEmail: string = inboxMatches[0].from.emailAddress.address;
+            const senderName: string = inboxMatches[0].from.emailAddress.name || senderEmail;
 
-            // Passo 2: busca os 5 mais recentes via $search (sem InefficientFilter)
-            const emails = await adapter.searchEmailsFromSender(mailboxConfig.mailbox, senderEmail, 5);
+            // Tenta $search para pegar os 5 mais recentes deste remetente (sem InefficientFilter)
+            let emails: any[] = await adapter.searchEmailsFromSender(mailboxConfig.mailbox, senderEmail, 5);
+
+            // Fallback: usa os emails já encontrados na inbox scan (ordenados por data)
+            if (!emails || emails.length === 0) {
+                logger.warn(`[listarEmails] $search vazio para ${senderEmail}, usando fallback da inbox scan`);
+                emails = inboxMatches.slice(0, 5);
+            }
 
             if (!emails || emails.length === 0) {
                 return { success: true, message: `Nenhum email encontrado de ${senderName}.` };
