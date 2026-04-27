@@ -768,11 +768,17 @@ export const createListarEmailsRemetenteTool = (phone: string) => tool({
                 created_at: Date.now(),
             });
 
-            await enviarListaWhatsApp(
+            const numberedList = emails.map((e: any, idx: number) => {
+                const date = new Date(e.receivedDateTime).toLocaleDateString('pt-BR', {
+                    timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit',
+                });
+                return `*${idx + 1}.* ${(e.subject || '(sem assunto)').slice(0, 60)} _(${date})_`;
+            }).join('\n');
+
+            const { enviarAvisoWhatsApp } = await import('@/lib/evolution-client');
+            await enviarAvisoWhatsApp(
                 phone,
-                `📧 Emails de ${senderName}`,
-                `Últimos ${emails.length} emails recebidos`,
-                rows
+                `📧 *Emails de ${senderName}*\n\n${numberedList}\n\nResponda com o *número* do email que deseja ler.`
             );
 
             return { success: true, message: `Lista de ${emails.length} email(s) de ${senderName} enviada.` };
