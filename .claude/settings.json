@@ -6,7 +6,8 @@
       "Bash(npx biome *)",
       "Bash(python3 -c ' *)",
       "Bash(npx husky *)",
-      "Bash(chmod +x /Users/User/Documents/Development/jarvis_v2/.husky/pre-push)"
+      "Bash(chmod +x /Users/User/Documents/Development/jarvis_v2/.husky/pre-push)",
+      "Bash(chmod +x /Users/User/Documents/Development/jarvis_v2/.husky/pre-commit)"
     ]
   }
 }
