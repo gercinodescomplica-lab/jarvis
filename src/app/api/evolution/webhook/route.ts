@@ -236,8 +236,11 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
       .limit(1)
       .maybeSingle();
 
+    logger.info(`[PendingState] phone=${phone} pendingRow=${pendingRow ? 'found' : 'null'}`);
+
     if (pendingRow) {
       const pending = JSON.parse(pendingRow.content as string);
+      logger.info(`[PendingState] action=${pending.action} text="${text}"`);
 
       if (pending.action === 'awaiting_pdf_title') {
         const title = text.trim();
@@ -266,6 +269,8 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
         } else if (numMatch && pending.emails?.length) {
           emailId = pending.emails[parseInt(text.trim(), 10) - 1]?.id ?? null;
         }
+
+        logger.info(`[EmailSelection] emailId=${emailId} emails=${pending.emails?.length} text="${text}"`);
 
         if (!emailId) {
           await supabase.from('chats').delete().eq('phone', phone).eq('role', 'pending');
@@ -318,8 +323,12 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
       }
     }
 
-    // ── Guard: número solto sem pending state ativa (evita LLM reprocessar seleção) ──
-    if (/^[1-9]$/.test(text.trim())) return;
+    // ── Guard: número solto sem pending state ativa ──
+    if (/^[1-9]$/.test(text.trim())) {
+      logger.warn(`[Guard] Número "${text}" recebido sem pending state — ignorando`);
+      await enviarAvisoWhatsApp(phone, '⚠️ Nenhuma lista ativa. Peça os emails novamente.');
+      return;
+    }
 
     // ── Intent de lembrete ────────────────────────────────────────────────────
     if (REMINDER_REGEX.test(text)) {
