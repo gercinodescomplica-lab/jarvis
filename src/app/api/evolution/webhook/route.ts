@@ -513,8 +513,33 @@ export async function checkAuthorization(phone: string, isGroup: boolean, groupJ
   });
 }
 
-// ─── Deduplicação e Rate Limit em Memoria (Serverless) ─────────────
-const processedMessageIds = new Set<string>();
+// ─── Deduplicação via DB (funciona entre instâncias serverless) ──────────────
+async function claimMessageId(msgId: string, phone: string): Promise<boolean> {
+  try {
+    const { error } = await supabase.from('processed_messages').insert({
+      msg_id: msgId,
+      phone,
+      created_at: Date.now(),
+    });
+    if (error) {
+      // Código 23505 = unique violation → outra instância já processou esta mensagem
+      if (error.code === '23505') return false;
+      // Outro erro de DB → deixa passar para não bloquear mensagens legítimas
+      logger.warn('[Dedup] Erro ao registrar msg_id no DB, permitindo processamento:', error.message);
+    }
+    // Limpeza assíncrona: remove registros com mais de 24h para não acumular
+    supabase.from('processed_messages')
+      .delete()
+      .lt('created_at', Date.now() - 24 * 60 * 60 * 1000)
+      .then(() => {});
+    return true;
+  } catch (e: any) {
+    logger.warn('[Dedup] Exceção ao registrar msg_id, permitindo processamento:', e?.message);
+    return true;
+  }
+}
+
+// ─── Rate Limit em Memória (por instância) ────────────────────────────────────
 const userRateLimits = new Map<string, number[]>();
 
 function checkRateLimit(key: string, limit = 10): boolean {
@@ -550,18 +575,18 @@ export async function POST(req: Request) {
     }
 
     const msgId = msgData?.key?.id || payload.data?.key?.id;
+    const phone = key?.remoteJidAlt || key?.remoteJid;
 
-    // W1: Deduplicação de mensagens em memória (evita duplicidade em Vercel retries simultâneos)
-    if (msgId) {
-      if (processedMessageIds.has(msgId)) return NextResponse.json({ status: 'ignored_duplicate' });
-      processedMessageIds.add(msgId);
-      if (processedMessageIds.size > 2000) {
-        const iter = processedMessageIds.values();
-        for (let i = 0; i < 500; i++) processedMessageIds.delete(iter.next().value!);
+    // W1: Deduplicação via DB — garante que apenas uma instância processe cada mensagem,
+    // mesmo quando o Vercel tem múltiplas instâncias aquecidas ou o Evolution API retentar.
+    if (msgId && phone) {
+      const claimed = await claimMessageId(msgId, phone);
+      if (!claimed) {
+        logger.info(`[Dedup] Mensagem ${msgId} já processada por outra instância — ignorando`);
+        return NextResponse.json({ status: 'ignored_duplicate' });
       }
     }
 
-    const phone = key?.remoteJidAlt || key?.remoteJid;
     const isGroup = phone?.includes('@g.us');
     // Em grupos, o remetente vem em payload.data.participant; em chats individuais é o próprio phone
     const senderPhone: string = isGroup
