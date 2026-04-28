@@ -62,6 +62,86 @@ export interface DRMApiResponse {
     data: DRMManager[];
 }
 
+// ─── Contracts ───────────────────────────────────────────────────────────────
+
+export interface Contract {
+    id: string;
+    numeroContrato: string;
+    protheus?: string;
+    cliente: string;
+    vlContratado: number;
+    vlFaturado?: number;
+    vlSaldo: number;
+    tipo?: string;
+    situacao?: string;
+    vigente: boolean;
+    gerencia: string;
+    nomeGerente?: string;
+    objeto?: string;
+    dtFimVigencia?: string;
+}
+
+export interface ContractsSummary {
+    total: number;
+    vigentes: number;
+    vencidos: number;
+    totalVlContratado: number;
+    totalVlFaturado: number;
+    totalVlSaldo: number;
+}
+
+export interface ContractsApiResponse {
+    success: boolean;
+    timestamp: string;
+    summary: ContractsSummary;
+    data: Contract[];
+}
+
+export interface FetchContractsParams {
+    search?: string;
+    gerencia?: string;
+    vigente?: boolean;
+    tipo?: string;
+}
+
+export async function fetchContracts(params: FetchContractsParams = {}): Promise<ContractsApiResponse> {
+    const baseUrl = process.env.EXTERNAL_API_BASE_URL;
+    const apiKey = process.env.EXTERNAL_API_KEY;
+
+    if (!baseUrl || !apiKey) {
+        throw new Error('EXTERNAL_API_BASE_URL or EXTERNAL_API_KEY is not configured.');
+    }
+
+    const url = new URL(`${baseUrl.replace(/\/$/, '')}/api/external/v1/contracts`);
+    if (params.search) url.searchParams.set('search', params.search);
+    if (params.gerencia) url.searchParams.set('gerencia', params.gerencia);
+    if (params.vigente !== undefined) url.searchParams.set('vigente', String(params.vigente));
+    if (params.tipo) url.searchParams.set('tipo', params.tipo);
+
+    console.log(`[DRM Service] Fetching contracts from: ${url}`);
+
+    const res = await fetch(url.toString(), {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+        },
+        cache: 'no-store',
+    });
+
+    if (!res.ok) {
+        throw new Error(`Contracts API responded with ${res.status}: ${res.statusText}`);
+    }
+
+    const json: ContractsApiResponse = await res.json();
+
+    if (!json.success) {
+        throw new Error('Contracts API returned success=false');
+    }
+
+    return json;
+}
+
 /**
  * Fetches DRM data from the external API.
  * Uses a 5-minute in-memory cache.

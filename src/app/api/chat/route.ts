@@ -3,7 +3,7 @@ import { getModel } from '@/lib/ai-provider';
 import { getWebSystemPrompt } from '@/lib/system-prompts';
 import {
     searchProjects, getCalendarEvents, createProject,
-    getProjectDetails, getDRMData, analyzeProjects, renderChart, createReminder, searchDocuments, getDocumentContent, createMemoryTool
+    getProjectDetails, getDRMData, getContracts, analyzeProjects, renderChart, createReminder, searchDocuments, getDocumentContent, createMemoryTool
 } from './tools';
 
 export const maxDuration = 30;
@@ -21,6 +21,7 @@ export async function POST(req: Request) {
             createProject,
             getProjectDetails,
             getDRMData,
+            getContracts,
             analyzeProjects,
             renderChart,
             createReminder,

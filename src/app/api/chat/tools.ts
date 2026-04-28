@@ -7,7 +7,7 @@ import { cachedTool } from '@/lib/tool-middleware';
 import { NotionService } from '@/lib/notion-service';
 import { CalendarDB } from '@/lib/calendar-db';
 import { GraphCalendarAdapter } from '@jarvis/adapters/src/ms-graph';
-import { fetchDRMData, formatDRMContext } from '@/lib/drm-service';
+import { fetchDRMData, formatDRMContext, fetchContracts } from '@/lib/drm-service';
 import { supabase } from '@/db';
 import { saveMemory, getMemoryContext } from '@/lib/memory-service';
 import { configure, runs } from '@trigger.dev/sdk/v3';
@@ -165,6 +165,67 @@ Use esta ferramenta SEMPRE que o usuário perguntar sobre:
             timestamp: drmData.timestamp,
         };
     }
+});
+
+export const getContracts = cachedTool({
+    name: 'getContracts',
+    cacheTtlMs: 15 * 60 * 1000, // 15 minutos
+    description: `Busca contratos da diretoria na API externa. Use SEMPRE que o usuário perguntar sobre:
+- Contratos (listar, buscar, detalhar)
+- Contratos de um cliente ou gerente específico
+- Contratos vigentes ou vencidos
+- Contratos por gerência (ex: GRC-1, KAM-4)
+- Valor contratado, faturado ou saldo de contratos
+- Tipo de contrato (SUSTENTAÇÃO ou PROJETOS)`,
+    inputSchema: jsonSchema<{
+        search?: string;
+        gerencia?: string;
+        vigente?: boolean;
+        tipo?: string;
+    }>({
+        type: 'object',
+        properties: {
+            search: {
+                type: 'string',
+                description: 'Busca textual por número do contrato, cliente, gerente, gerência ou objeto.'
+            },
+            gerencia: {
+                type: 'string',
+                description: 'Código da gerência para filtrar (ex: "GRC-1", "KAM-4").'
+            },
+            vigente: {
+                type: 'boolean',
+                description: 'true para contratos vigentes, false para vencidos. Omitir para todos.'
+            },
+            tipo: {
+                type: 'string',
+                enum: ['SUSTENTAÇÃO', 'PROJETOS'],
+                description: 'Tipo do contrato.'
+            },
+        },
+        additionalProperties: false,
+    }),
+    execute: async ({ search, gerencia, vigente, tipo }) => {
+        const result = await fetchContracts({ search, gerencia, vigente, tipo });
+        const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        return {
+            success: true,
+            timestamp: result.timestamp,
+            summary: {
+                ...result.summary,
+                totalVlContratadoFormatted: fmt(result.summary.totalVlContratado),
+                totalVlFaturadoFormatted: fmt(result.summary.totalVlFaturado),
+                totalVlSaldoFormatted: fmt(result.summary.totalVlSaldo),
+            },
+            contracts: result.data.map(c => ({
+                ...c,
+                vlContratadoFormatted: fmt(c.vlContratado),
+                vlSaldoFormatted: fmt(c.vlSaldo),
+                vlFaturadoFormatted: c.vlFaturado !== undefined ? fmt(c.vlFaturado) : undefined,
+            })),
+            count: result.data.length,
+        };
+    },
 });
 
 export const analyzeProjects = cachedTool({
