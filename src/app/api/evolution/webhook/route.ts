@@ -14,7 +14,7 @@ import { GraphCalendarAdapter } from '@jarvis/adapters/src/ms-graph';
 import { renderChartToBase64 } from '@/lib/chart-renderer';
 import {
     searchProjects, getCalendarEvents, createProject,
-    getProjectDetails, getDRMData, getContracts, analyzeProjects, createRenderChartTool, searchDocuments, searchNotion,
+    getProjectDetails, getDRMData, getContracts, getContractsAnalytics, analyzeProjects, createRenderChartTool, searchDocuments, searchNotion,
     createMemoryTool, searchMemoriesTool, deleteMemoryTool,
     listRemindersTool, cancelReminderTool, updateProjectStatusTool, createWhatsAppReminderTool,
     createListarEmailsRemetenteTool,
@@ -411,6 +411,7 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
         getProjectDetails,
         getDRMData,
         getContracts,
+        getContractsAnalytics,
         analyzeProjects,
         renderChart: createRenderChartTool(chartRef),
         searchDocuments,

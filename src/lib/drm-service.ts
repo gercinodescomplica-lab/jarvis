@@ -82,12 +82,28 @@ export interface Contract {
 }
 
 export interface ContractsSummary {
-    total: number;
-    vigentes: number;
-    vencidos: number;
+    total: number;       // mapeado de summary.totalContratos
+    vigentes: number;    // mapeado de summary.breakdown.vigentes
+    vencidos: number;    // mapeado de summary.breakdown.vencidos
     totalVlContratado: number;
     totalVlFaturado: number;
     totalVlSaldo: number;
+}
+
+// Shape real que a API externa devolve (diferente do ContractsSummary normalizado)
+interface RawContractsSummary {
+    totalContratos: number;
+    breakdown: { vigentes: number; vencidos: number };
+    totalVlContratado: number;
+    totalVlFaturado: number;
+    totalVlSaldo: number;
+}
+
+interface RawContractsApiResponse {
+    success: boolean;
+    timestamp: string;
+    summary: RawContractsSummary;
+    data: Contract[];
 }
 
 export interface ContractsApiResponse {
@@ -133,10 +149,124 @@ export async function fetchContracts(params: FetchContractsParams = {}): Promise
         throw new Error(`Contracts API responded with ${res.status}: ${res.statusText}`);
     }
 
-    const json: ContractsApiResponse = await res.json();
+    const raw: RawContractsApiResponse = await res.json();
+
+    if (!raw.success) {
+        throw new Error('Contracts API returned success=false');
+    }
+
+    // Normaliza o shape da API para o ContractsSummary interno
+    const json: ContractsApiResponse = {
+        ...raw,
+        summary: {
+            total: raw.summary.totalContratos,
+            vigentes: raw.summary.breakdown?.vigentes ?? 0,
+            vencidos: raw.summary.breakdown?.vencidos ?? 0,
+            totalVlContratado: raw.summary.totalVlContratado,
+            totalVlFaturado: raw.summary.totalVlFaturado,
+            totalVlSaldo: raw.summary.totalVlSaldo,
+        },
+    };
+
+    return json;
+}
+
+// ─── Contracts Analytics ──────────────────────────────────────────────────────
+
+export interface ContractBrief {
+    numeroContrato: string;
+    cliente: string;
+    gerencia: string;
+    nomeGerente?: string;
+    dtFimVigencia?: string;
+    diasRestantes?: number;
+    vlContratado: number;
+    vlContratadoFormatted: string;
+    vlSaldo: number;
+    vlSaldoFormatted: string;
+    objeto?: string;
+}
+
+export interface ContractsAnalytics {
+    success: boolean;
+    timestamp: string;
+    geradoEm: string;
+    visaoGeral: {
+        total: number;
+        vigentes: number;
+        vencidos: number;
+        totalVlContratado: number;
+        totalVlContratadoFormatted: string;
+        totalVlFaturado: number;
+        totalVlFaturadoFormatted: string;
+        totalVlSaldo: number;
+        totalVlSaldoFormatted: string;
+    };
+    porGerencia: Array<{
+        gerencia: string;
+        totalContratos: number;
+        vigentes: number;
+        vencidos: number;
+        vlContratadoTotal: number;
+        vlContratadoTotalFormatted: string;
+        vlSaldoTotal: number;
+        vlSaldoTotalFormatted: string;
+    }>;
+    porTipo: Array<{
+        tipo: string;
+        total: number;
+        vlContratadoTotal: number;
+        vlContratadoTotalFormatted: string;
+    }>;
+    vencimentos: {
+        vencidosAtualmente: ContractBrief[];
+        vencendoHoje: ContractBrief[];
+        vencendoEm7Dias: ContractBrief[];
+        vencendoEsteMes: ContractBrief[];
+        vencendoProximoMes: ContractBrief[];
+        vencendoEm90Dias: ContractBrief[];
+        vencendoEm180Dias: ContractBrief[];
+        vencendoEsteAno: ContractBrief[];
+        totalVencendoEm90Dias: number;
+        vlTotalVencendoEm90Dias: number;
+        vlTotalVencendoEm90DiasFormatted: string;
+    };
+    destaques: {
+        proximoAVencer: ContractBrief | null;
+        maiorValorContratado: ContractBrief | null;
+        menorValorContratado: ContractBrief | null;
+        maiorSaldoAReceber: ContractBrief | null;
+        clientesComMaisContratos: Array<{ cliente: string; totalContratos: number }>;
+    };
+}
+
+export async function fetchContractsAnalytics(): Promise<ContractsAnalytics> {
+    const baseUrl = process.env.EXTERNAL_API_BASE_URL;
+    const apiKey = process.env.EXTERNAL_API_KEY;
+
+    if (!baseUrl || !apiKey) {
+        throw new Error('EXTERNAL_API_BASE_URL or EXTERNAL_API_KEY is not configured.');
+    }
+
+    const url = `${baseUrl.replace(/\/$/, '')}/api/external/v1/contracts/analytics`;
+
+    const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+        },
+        cache: 'no-store',
+    });
+
+    if (!res.ok) {
+        throw new Error(`Contracts Analytics API responded with ${res.status}: ${res.statusText}`);
+    }
+
+    const json: ContractsAnalytics = await res.json();
 
     if (!json.success) {
-        throw new Error('Contracts API returned success=false');
+        throw new Error('Contracts Analytics API returned success=false');
     }
 
     return json;

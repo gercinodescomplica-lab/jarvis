@@ -7,7 +7,7 @@ import { cachedTool } from '@/lib/tool-middleware';
 import { NotionService } from '@/lib/notion-service';
 import { CalendarDB } from '@/lib/calendar-db';
 import { GraphCalendarAdapter } from '@jarvis/adapters/src/ms-graph';
-import { fetchDRMData, formatDRMContext, fetchContracts } from '@/lib/drm-service';
+import { fetchDRMData, formatDRMContext, fetchContracts, fetchContractsAnalytics } from '@/lib/drm-service';
 import { supabase } from '@/db';
 import { saveMemory, getMemoryContext } from '@/lib/memory-service';
 import { configure, runs } from '@trigger.dev/sdk/v3';
@@ -237,6 +237,31 @@ IMPORTANTE — como ler o resultado:
             })),
             contractsReturnedCount: result.data.length,
         };
+    },
+});
+
+export const getContractsAnalytics = cachedTool({
+    name: 'getContractsAnalytics',
+    cacheTtlMs: 15 * 60 * 1000, // 15 minutos
+    description: `Busca análises pré-computadas dos contratos da diretoria. Use SEMPRE que o usuário perguntar sobre:
+- Totais e visão geral (quantos contratos, valores totais)
+- Contratos por gerência ou por tipo
+- Vencimentos: próximo a vencer, vencem esse mês, mês que vem, nos próximos 90 ou 180 dias
+- Maior ou menor contrato por valor
+- Maior saldo a receber
+- Clientes com mais contratos
+- Qualquer análise ou ranking de contratos
+
+Prefira esta tool a getContracts para perguntas analíticas — ela retorna resultados pré-calculados pelo servidor, sem risco de erro de cálculo.
+Use getContracts apenas quando o usuário pedir detalhes de um contrato específico (por número, cliente ou gerente).`,
+    inputSchema: jsonSchema<Record<string, never>>({
+        type: 'object',
+        properties: {},
+        additionalProperties: false,
+    }),
+    execute: async () => {
+        const result = await fetchContractsAnalytics();
+        return result;
     },
 });
 
