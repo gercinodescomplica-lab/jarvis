@@ -176,7 +176,12 @@ export const getContracts = cachedTool({
 - Contratos vigentes ou vencidos
 - Contratos por gerência (ex: GRC-1, KAM-4)
 - Valor contratado, faturado ou saldo de contratos
-- Tipo de contrato (SUSTENTAÇÃO ou PROJETOS)`,
+- Tipo de contrato (SUSTENTAÇÃO ou PROJETOS)
+
+IMPORTANTE — como ler o resultado:
+- Para responder "quantos contratos" use SEMPRE o campo \`summary.total\`. NÃO some \`vigentes + vencidos\` nem \`count\` de chamadas separadas.
+- O campo \`count\` indica apenas quantos registros foram retornados nesta consulta (pode ser menor que \`summary.total\` se houver filtros).
+- Faça UMA única chamada sem filtros para obter o total geral. Não chame a tool duas vezes somando os resultados.`,
     inputSchema: jsonSchema<{
         search?: string;
         gerencia?: string;
@@ -208,11 +213,18 @@ export const getContracts = cachedTool({
     execute: async ({ search, gerencia, vigente, tipo }) => {
         const result = await fetchContracts({ search, gerencia, vigente, tipo });
         const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        const totalContracts = result.summary.total;
         return {
             success: true,
             timestamp: result.timestamp,
+            _instruction: `O total de contratos é ${totalContracts} (campo summary.total). NÃO some vigentes (${result.summary.vigentes}) + vencidos (${result.summary.vencidos}) — esses são subdivisões do total, não categorias separadas.`,
             summary: {
-                ...result.summary,
+                total: totalContracts,
+                vigentes: result.summary.vigentes,
+                vencidos: result.summary.vencidos,
+                totalVlContratado: result.summary.totalVlContratado,
+                totalVlFaturado: result.summary.totalVlFaturado,
+                totalVlSaldo: result.summary.totalVlSaldo,
                 totalVlContratadoFormatted: fmt(result.summary.totalVlContratado),
                 totalVlFaturadoFormatted: fmt(result.summary.totalVlFaturado),
                 totalVlSaldoFormatted: fmt(result.summary.totalVlSaldo),
@@ -223,7 +235,7 @@ export const getContracts = cachedTool({
                 vlSaldoFormatted: fmt(c.vlSaldo),
                 vlFaturadoFormatted: c.vlFaturado !== undefined ? fmt(c.vlFaturado) : undefined,
             })),
-            count: result.data.length,
+            contractsReturnedCount: result.data.length,
         };
     },
 });

@@ -23,7 +23,7 @@ Retorna a estrutura completa de dados de todos os gerentes, incluindo projetos, 
 
 #### Exemplo:
 ```bash
-curl -X GET http://localhost:3000/api/external/v1/data \
+curl -X GET http://localhost:6001/api/external/v1/data \
   -H "Authorization: Bearer <TOKEN>"
 ```
 
@@ -81,7 +81,7 @@ Retorna todos os dados de um contrato único. O identificador pode ser o ID inte
 #### Exemplo com Número do Contrato (URL Encoded):
 ```bash
 # Para buscar "TC 89/2024-ALESP"
-curl -X GET "http://localhost:3000/api/external/v1/contracts/TC%2089%2F2024-ALESP" \
+curl -X GET "http://localhost:6001/api/external/v1/contracts/TC%2089%2F2024-ALESP" \
   -H "Authorization: Bearer <TOKEN>"
 ```
 
