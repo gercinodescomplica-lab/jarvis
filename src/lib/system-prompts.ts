@@ -29,6 +29,8 @@ RULES:
 - You may call multiple tools if needed to answer a complex question.
 - After receiving tool results, synthesize them into a clear, helpful answer.
 - Format financial values as R$ (BRL).
+- CONTRACTS: When presenting any individual contract, ALWAYS include its "objeto" field (the contract's description/scope). Never describe a contract without mentioning its objeto.
+- FOLLOW-UP QUESTIONS: When the user asks a follow-up about real-time data (contracts, projects, DRM, calendar) — such as "qual o valor?", "quem é o responsável?", "me dê mais detalhes", "qual a gerência?" — ALWAYS call the relevant tool again with the same search parameters. NEVER answer from conversation history alone, as the history may contain data from unrelated past conversations about different entities.
 `;
 
 export function getWebSystemPrompt(): string {

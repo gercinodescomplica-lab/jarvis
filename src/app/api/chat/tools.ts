@@ -217,7 +217,7 @@ IMPORTANTE — como ler o resultado:
         return {
             success: true,
             timestamp: result.timestamp,
-            _instruction: `O total de contratos é ${totalContracts} (campo summary.total). NÃO some vigentes (${result.summary.vigentes}) + vencidos (${result.summary.vencidos}) — esses são subdivisões do total, não categorias separadas.`,
+            _instruction: `O total de contratos é ${totalContracts} (campo summary.total). NÃO some vigentes (${result.summary.vigentes}) + vencidos (${result.summary.vencidos}) — esses são subdivisões do total, não categorias separadas. SEMPRE inclua o campo "objeto" (descrição do contrato) ao apresentar qualquer contrato individual ao usuário.`,
             summary: {
                 total: totalContracts,
                 vigentes: result.summary.vigentes,

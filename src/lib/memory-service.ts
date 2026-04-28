@@ -257,11 +257,18 @@ export async function getSemanticHistory(
   phone: string,
   maxMessages = 10
 ): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
+  // Janela de 6h: evita que mensagens de sessões antigas contaminem o contexto atual.
+  // Sem esse limite, palavras como "responsável" ou "valor" geram overlap com conversas
+  // de dias atrás sobre entidades completamente diferentes, fazendo o LLM misturar dados.
+  const windowMs = 6 * 60 * 60 * 1000;
+  const since = Date.now() - windowMs;
+
   const { data: rawHistory } = await supabase
     .from('chats')
     .select('role, content, created_at')
     .eq('phone', phone)
     .in('role', ['user', 'assistant'])
+    .gte('created_at', since)
     .order('created_at', { ascending: false })
     .limit(30);
 
