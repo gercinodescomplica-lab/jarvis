@@ -318,6 +318,65 @@ export async function fetchDRMData(): Promise<DRMApiResponse> {
 }
 
 /**
+ * Performs semantic validation on contract search results.
+ * Uses string similarity and keyword matching to identify potential matches
+ * that might have been missed by exact string matching.
+ */
+export function validateContractMatches(
+    userQuery: string,
+    foundContracts: Contract[],
+    allContracts: Contract[]
+): { matches: Contract[]; suggestions: Contract[]; confidence: number } {
+    if (foundContracts.length > 0) {
+        // If we found exact matches, return them with high confidence
+        return { matches: foundContracts, suggestions: [], confidence: 1.0 };
+    }
+
+    const normalize = (s: string) => 
+        s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    
+    const normalizedQuery = normalize(userQuery);
+    const queryTerms = normalizedQuery.split(/\s+/).filter(t => t.length > 2);
+
+    // Extract key search intent from query (client, manager, or service type)
+    const clientMatch = queryTerms.find(t => 
+        allContracts.some(c => normalize(c.cliente).includes(t) || t.includes(normalize(c.cliente)))
+    );
+    
+    const objectMatch = queryTerms.find(t =>
+        allContracts.some(c => normalize(c.objeto || '').includes(t) || t.includes(normalize(c.objeto || '')))
+    );
+
+    // Find similar contracts
+    const potentialMatches = allContracts.filter(c => {
+        let score = 0;
+        
+        // Score based on client match
+        if (clientMatch && normalize(c.cliente).includes(clientMatch)) score += 3;
+        
+        // Score based on object/service match
+        if (objectMatch && normalize(c.objeto || '').includes(objectMatch)) score += 2;
+        
+        // Partial keyword matching in object description
+        queryTerms.forEach(term => {
+            if (normalize(c.objeto || '').includes(term)) score += 1;
+            if (normalize(c.cliente).includes(term)) score += 1;
+        });
+        
+        return score > 0;
+    });
+
+    // Calculate confidence based on match quality
+    const confidence = potentialMatches.length > 0 ? 0.6 : 0;
+
+    return {
+        matches: [],
+        suggestions: potentialMatches.slice(0, 5),
+        confidence
+    };
+}
+
+/**
  * Formats DRM data as a context string to inject into the system prompt.
  * Automatically scopes the data to avoid sending the entire payload when
  * only a subset is needed — but always includes the summary for macro questions.

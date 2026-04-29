@@ -7,7 +7,7 @@ import { cachedTool } from '@/lib/tool-middleware';
 import { NotionService } from '@/lib/notion-service';
 import { CalendarDB } from '@/lib/calendar-db';
 import { GraphCalendarAdapter } from '@jarvis/adapters/src/ms-graph';
-import { fetchDRMData, formatDRMContext, fetchContracts, fetchContractsAnalytics } from '@/lib/drm-service';
+import { fetchDRMData, formatDRMContext, fetchContracts, fetchContractsAnalytics, validateContractMatches } from '@/lib/drm-service';
 import { supabase } from '@/db';
 import { saveMemory, getMemoryContext } from '@/lib/memory-service';
 import { configure, runs } from '@trigger.dev/sdk/v3';
@@ -214,10 +214,27 @@ IMPORTANTE — como ler o resultado:
         const result = await fetchContracts({ search, gerencia, vigente, tipo });
         const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
         const totalContracts = result.summary.total;
+        
+        // Semantic validation: if no results found but search term was provided, 
+        // fetch all contracts to find semantic matches
+        let semanticSuggestions: any[] = [];
+        if (result.data.length === 0 && search && !gerencia && vigente === undefined && tipo === undefined) {
+            const allContractsResult = await fetchContracts({});
+            const validation = validateContractMatches(search, result.data, allContractsResult.data);
+            if (validation.suggestions.length > 0) {
+                semanticSuggestions = validation.suggestions.map(c => ({
+                    ...c,
+                    vlContratadoFormatted: fmt(c.vlContratado),
+                    vlSaldoFormatted: fmt(c.vlSaldo),
+                    vlFaturadoFormatted: c.vlFaturado !== undefined ? fmt(c.vlFaturado) : undefined,
+                }));
+            }
+        }
+        
         return {
             success: true,
             timestamp: result.timestamp,
-            _instruction: `O total de contratos é ${totalContracts} (campo summary.total). NÃO some vigentes (${result.summary.vigentes}) + vencidos (${result.summary.vencidos}) — esses são subdivisões do total, não categorias separadas. SEMPRE inclua o campo "objeto" (descrição do contrato) ao apresentar qualquer contrato individual ao usuário.`,
+            _instruction: `O total de contratos é ${totalContracts} (campo summary.total). NÃO some vigentes (${result.summary.vigentes}) + vencidos (${result.summary.vencidos}) — esses são subdivisões do total, não categorias separadas. SEMPRE inclua o campo "objeto" (descrição do contrato) ao apresentar qualquer contrato individual ao usuário.${semanticSuggestions.length > 0 ? ` IMPORTANTE: Não encontrei correspondência exata para "${search}", mas encontrei ${semanticSuggestions.length} contrato(s) similar(es) baseado em análise semântica. Apresente-os como sugestões.` : ''}`,
             summary: {
                 total: totalContracts,
                 vigentes: result.summary.vigentes,
@@ -236,6 +253,8 @@ IMPORTANTE — como ler o resultado:
                 vlFaturadoFormatted: c.vlFaturado !== undefined ? fmt(c.vlFaturado) : undefined,
             })),
             contractsReturnedCount: result.data.length,
+            semanticSuggestions: semanticSuggestions.length > 0 ? semanticSuggestions : undefined,
+            semanticSuggestionsCount: semanticSuggestions.length,
         };
     },
 });
