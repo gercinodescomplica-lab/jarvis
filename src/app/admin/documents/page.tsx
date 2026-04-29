@@ -1,9 +1,9 @@
 'use client';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useAdminToken } from '../AdminTokenContext';
-import { Search, FileText, Trash2, Library, Eye, EyeOff } from 'lucide-react';
+import { Search, FileText, Trash2, Library, Eye, EyeOff, Upload, Globe, Loader2 } from 'lucide-react';
 
-type Doc = { id: string; uploader_phone: string; filename: string; description: string | null; total_chunks: number; created_at: number };
+type Doc = { id: string; uploader_phone: string; filename: string; description: string | null; total_chunks: number; created_at: number; is_global: boolean };
 type Chunk = { id: string; chunk_index: number; content: string };
 
 export default function DocumentsPage() {
@@ -15,11 +15,36 @@ export default function DocumentsPage() {
   const [chunks, setChunks] = useState<Chunk[]>([]);
   const [search, setSearch] = useState('');
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
   const load = () => {
     setLoading(true);
     fetch('/api/admin/documents', { headers }).then(r => r.json()).then(d => { setDocs(Array.isArray(d) ? d : []); setLoading(false); });
   };
   useEffect(load, [token]);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!fileInputRef.current) return;
+    fileInputRef.current.value = '';
+    if (!file) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch('/api/admin/documents', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Falha no upload');
+      load();
+    } catch (err: any) {
+      setUploadError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const expand = async (id: string) => {
     if (expanded === id) { setExpanded(null); return; }
@@ -44,6 +69,19 @@ export default function DocumentsPage() {
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight mb-2 text-foreground">Documentos</h1>
           <p className="text-muted-foreground">PDFs, apostilas e arquivos extensos divididos em banco vetorial</p>
+        </div>
+        <div className="flex flex-col items-end gap-2">
+          <input ref={fileInputRef} type="file" accept=".pdf" className="hidden" onChange={handleUpload} />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold shadow hover:bg-primary/90 disabled:opacity-60 transition-all"
+          >
+            {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+            {uploading ? 'Processando...' : 'Upload Global'}
+            <Globe size={14} className="opacity-70" />
+          </button>
+          {uploadError && <p className="text-xs text-destructive">{uploadError}</p>}
         </div>
       </div>
 
@@ -101,7 +139,11 @@ export default function DocumentsPage() {
                           <span className="text-xs text-muted-foreground font-mono truncate max-w-md">{doc.filename}</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 font-mono text-xs text-muted-foreground">{doc.uploader_phone}</td>
+                      <td className="px-6 py-4 font-mono text-xs text-muted-foreground">
+                        {doc.is_global
+                          ? <span className="inline-flex items-center gap-1 text-emerald-500 font-semibold"><Globe size={12} />Global</span>
+                          : doc.uploader_phone}
+                      </td>
                       <td className="px-6 py-4 text-center items-center">
                         <span className="inline-flex items-center justify-center px-4 py-1.5 rounded-full text-xs font-bold text-white bg-blue-600 shadow-md shadow-blue-500/20">
                           {doc.total_chunks} Chunks

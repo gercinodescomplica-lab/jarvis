@@ -145,7 +145,8 @@ function extractTitle(filename: string): string {
 export async function saveDocument(
   pdfBuffer: Buffer,
   filename: string,
-  uploaderPhone: string
+  uploaderPhone: string,
+  isGlobal = false
 ): Promise<string> {
   logger.info(` ▶ Iniciando processamento: "${filename}" (${(pdfBuffer.length / 1024).toFixed(1)} KB)`);
 
@@ -186,6 +187,7 @@ export async function saveDocument(
       filename,
       description: documentTitle,
       total_chunks: 0,
+      is_global: isGlobal,
       created_at: Date.now(),
     })
     .select('id')
