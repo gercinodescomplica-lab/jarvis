@@ -122,6 +122,7 @@ async function inferSubjectFromText(text: string): Promise<string> {
 
 const BOT_MENTION_REGEX = /\bjarvis\b|\bninja\s*search\b|\bninja\b/i;
 const TRANSCRIPT_REQUEST_REGEX = /transcreve|transcrição|transcript|escreve\s+o\s+que|o\s+que\s+(ele|ela|a\s+pessoa)\s+(disse|falou|fala)|passar\s+para\s+texto|texto\s+do\s+áudio/i;
+const IMPROVE_TEXT_REGEX = /melhora\s+(esse|este|o|um)?\s*texto|reescreve?\s+(esse|este|o|um)?\s*texto|deixa\s+(esse|este|o|um)?\s*texto\s+melhor|policia\s+(esse|este|o|um)?\s*texto|melhora\s+pra\s+mim/i;
 
 async function processAudio(
   phone: string,
@@ -153,6 +154,12 @@ async function processAudio(
       return;
     }
 
+    // Intent: melhoria de texto — processa e retorna sem cair no LLM geral
+    if (IMPROVE_TEXT_REGEX.test(text)) {
+      await improveText(phone, text);
+      return;
+    }
+
     // Detecta se é um comando estruturado (lembrete, salvar memória, etc.)
     // Nesse caso, o Jarvis executa silenciosamente — a resposta já é auto-explicativa
     const isCommandIntent =
@@ -173,6 +180,63 @@ async function processAudio(
   }
 }
 
+
+// ─── Melhoria de texto via áudio ─────────────────────────────────────────────
+
+const STYLE_INSTRUCTIONS: Record<string, string> = {
+  default: 'Melhore o texto corrigindo gramática, pontuação, clareza e fluidez. Mantenha a mensagem e o tom originais.',
+  descontraido: 'Reescreva o texto de forma descontraída, informal e leve, como numa conversa entre amigos. Corrija erros mas mantenha o tom casual.',
+  culto: 'Reescreva o texto de forma culta, elegante e sofisticada, com vocabulário rebuscado e estrutura elaborada, sem exageros.',
+};
+
+async function improveText(phone: string, transcription: string) {
+  try {
+    const parseResult = await generateText({
+      model: getModel(),
+      system: `Você é um parser de intenções. O usuário enviou um áudio pedindo para melhorar um texto.
+
+Extraia dois campos:
+1. "style": estilo desejado:
+   - "descontraido" se o usuário disse descontraído, informal, casual, descolado ou leve
+   - "culto" se disse culto, formal, rebuscado, profissional, elaborado ou elegante
+   - "default" em qualquer outro caso
+2. "text": o texto-alvo a ser melhorado. Remova APENAS a parte do comando ("Jarvis, melhora esse texto", "melhora pra mim", etc.) e retorne o restante intacto.
+
+Responda APENAS com JSON válido, sem markdown: {"style":"...","text":"..."}`,
+      messages: [{ role: 'user', content: transcription }],
+    });
+
+    let parsed: { style: string; text: string } = { style: 'default', text: '' };
+    try {
+      parsed = JSON.parse((parseResult.text || '').replace(/```json\n?|```/g, '').trim());
+    } catch { /* fallback abaixo */ }
+
+    if (!parsed.text?.trim()) {
+      await enviarAvisoWhatsApp(phone, '❌ Não identifiquei o texto a melhorar. Tente: _"Jarvis, melhora esse texto: [seu texto aqui]"_');
+      return;
+    }
+
+    const instruction = STYLE_INSTRUCTIONS[parsed.style] || STYLE_INSTRUCTIONS.default;
+
+    const improveResult = await generateText({
+      model: getModel(),
+      system: `Você é um especialista em escrita e revisão de textos em português brasileiro. ${instruction} Retorne APENAS o texto melhorado, sem explicações, sem aspas, sem prefixo.`,
+      messages: [{ role: 'user', content: parsed.text }],
+    });
+
+    const improved = improveResult.text?.trim();
+    if (!improved) {
+      await enviarAvisoWhatsApp(phone, '❌ Não consegui melhorar o texto. Tente novamente.');
+      return;
+    }
+
+    const styleLabel = parsed.style === 'descontraido' ? ' • descontraído' : parsed.style === 'culto' ? ' • culto' : '';
+    await enviarAvisoWhatsApp(phone, `✍️ *Texto melhorado${styleLabel}:*\n\n${improved}`);
+  } catch (e) {
+    logger.error('[improveText] Erro:', e);
+    await enviarAvisoWhatsApp(phone, '❌ Erro ao melhorar o texto. Tente novamente.');
+  }
+}
 
 // ─── Parser de lembretes via LLM ──────────────────────────────────────────────
 
