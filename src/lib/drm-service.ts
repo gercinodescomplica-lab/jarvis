@@ -329,6 +329,10 @@ export function formatDRMContext(drmData: DRMApiResponse, userQuery: string): st
     const fmt = (v: number) =>
         v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+    // Helper function to normalize accents for comparison
+    const normalize = (s: string) => 
+        s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
     // ── Summary block (always injected) ──────────────────────────────────────
     const summaryBlock = `
 ## RESUMO GERAL DRM (fonte: API externa — use estes valores para respostas macro)
@@ -347,9 +351,10 @@ Timestamp da API: ${drmData.timestamp}
     let managersToInclude: DRMManager[] = [];
 
     // Try to find a specific manager mentioned in the query
+    const normalizedQuery = normalize(userQuery);
     const mentionedManager = data.find(m =>
-        lower.includes(m.name.toLowerCase()) ||
-        m.name.toLowerCase().split(' ').some(part => part.length > 3 && lower.includes(part))
+        normalizedQuery.includes(normalize(m.name)) ||
+        normalize(m.name).split(' ').some(part => part.length > 3 && normalizedQuery.includes(part))
     );
 
     if (mentionedManager) {
