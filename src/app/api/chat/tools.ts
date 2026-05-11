@@ -699,7 +699,9 @@ export const listRemindersTool = (phone: string) => tool({
     execute: async ({ includeHistory = false }) => {
         try {
             const { ReminderService } = await import('@/lib/reminder-service');
-            const cleanPhone = phone.replace(/\D/g, '');
+            // Normalise: strip non-digits, then ensure DDI 55 prefix for BR numbers
+            const digits = phone.replace(/\D/g, '');
+            const cleanPhone = digits.startsWith('55') ? digits : `55${digits}`;
             const records = includeHistory
                 ? await ReminderService.getHistoryByPhone(cleanPhone)
                 : await ReminderService.getPendingByPhone(cleanPhone);
@@ -786,7 +788,8 @@ export const cancelReminderTool = (phone: string) => tool({
     execute: async ({ search }) => {
         try {
             const { ReminderService } = await import('@/lib/reminder-service');
-            const cleanPhone = phone.replace(/\D/g, '');
+            const digits = phone.replace(/\D/g, '');
+            const cleanPhone = digits.startsWith('55') ? digits : `55${digits}`;
 
             // Busca no banco pelo texto
             const pending = await ReminderService.getPendingByPhone(cleanPhone);
