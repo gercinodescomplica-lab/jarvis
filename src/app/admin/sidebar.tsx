@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Users, BrainCircuit, FileText, BellRing, CalendarDays, Zap, BarChart2, ClipboardList, Mail, Cake } from 'lucide-react';
+import { LayoutDashboard, Users, BrainCircuit, FileText, BellRing, CalendarDays, Zap, BarChart2, ClipboardList, Mail, Cake, ContactRound } from 'lucide-react';
 
 const navItems = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/whitelist', label: 'Whitelist', icon: Users },
+  { href: '/admin/grc-users', label: 'Gerentes GRC', icon: ContactRound },
   { href: '/admin/memories', label: 'Memórias', icon: BrainCircuit },
   { href: '/admin/documents', label: 'Documentos', icon: FileText },
   { href: '/admin/reminders', label: 'Lembretes', icon: BellRing },

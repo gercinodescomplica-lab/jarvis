@@ -65,18 +65,23 @@ type SyncResult = {
 };
 
 // ─── resolveManagerId ─────────────────────────────────────────────────────────
+// Looks up the managerId from the grc_users table stored in Jarvis's own Supabase.
 
 export async function resolveManagerId(rawPhone: string): Promise<string | null> {
     const phone = rawPhone.replace(/\D/g, '');
     try {
-        const res = await fetch(
-            `${baseUrl()}/api/external/v1/users/phone/${phone}`,
-            { headers: { 'Authorization': `Bearer ${apiKey()}` } }
+        const { createClient } = await import('@supabase/supabase-js');
+        const db = createClient(
+            `https://${process.env.SUPABASE_PROJECT_ID}.supabase.co`,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
         );
-        if (!res.ok) return null;
-        const { data } = await res.json();
-        if (!data?.active) return null;
-        return data.managerId as string | null;
+        const { data } = await db
+            .from('grc_users')
+            .select('manager_id, active')
+            .eq('phone', phone)
+            .maybeSingle();
+        if (!data || !data.active) return null;
+        return data.manager_id as string;
     } catch {
         return null;
     }
