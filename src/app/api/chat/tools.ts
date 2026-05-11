@@ -688,24 +688,39 @@ export const updateProjectStatusTool = tool({
 });
 
 export const listRemindersTool = (phone: string) => tool({
-    description: 'Lista os próximos lembretes pendentes agendados no Trigger.dev para este usuário (Comando "quais são os meus lembretes?").',
-    inputSchema: jsonSchema<{}>({
+    description: 'Lista os lembretes pendentes do usuário (Comando "quais são os meus lembretes?", "minha lista de tarefas", "o que tenho pra fazer"). Retorna lembretes salvos no banco de dados.',
+    inputSchema: jsonSchema<{ includeHistory?: boolean }>({
         type: 'object',
-        properties: {},
+        properties: {
+            includeHistory: { type: 'boolean', description: 'Se true, inclui lembretes já enviados/cancelados além dos pendentes.' }
+        },
         additionalProperties: false,
     }),
-    execute: async () => {
+    execute: async ({ includeHistory = false }) => {
         try {
-            configure({ secretKey: process.env.TRIGGER_SECRET_KEY! });
-            const page = await runs.list({ 
-                taskIdentifier: 'send-reminder', 
-                limit: 20,
-                status: ['DELAYED', 'QUEUED', 'EXECUTING'] as any
-            });
-            const runsDetailed = await Promise.all(page.data.map((r: any) => runs.retrieve(r.id).catch(() => r)));
-            const pending = runsDetailed.filter((r: any) => r.payload?.senderPhone === phone || r.payload?.jid === phone);
-            if (pending.length === 0) return { result: 'Você não tem nenhum lembrete pendente.' };
-            return { result: pending.map((r: any) => ({ id: r.id, reminder: r.payload?.reminder, delayedUntil: r.delayedUntil })) };
+            const { ReminderService } = await import('@/lib/reminder-service');
+            const cleanPhone = phone.replace(/\D/g, '');
+            const records = includeHistory
+                ? await ReminderService.getHistoryByPhone(cleanPhone)
+                : await ReminderService.getPendingByPhone(cleanPhone);
+
+            if (records.length === 0) {
+                return { result: includeHistory ? 'Nenhum lembrete encontrado no histórico.' : 'Você não tem nenhum lembrete pendente.' };
+            }
+
+            return {
+                result: records.map(r => ({
+                    id: r.id,
+                    reminder: r.message,
+                    scheduledFor: r.remindAt.toLocaleString('pt-BR', {
+                        timeZone: 'America/Sao_Paulo',
+                        weekday: 'long', day: '2-digit', month: '2-digit',
+                        hour: '2-digit', minute: '2-digit',
+                    }),
+                    status: r.status,
+                    priority: r.priority,
+                }))
+            };
         } catch (e: any) {
             return { error: 'Erro ao listar lembretes: ' + e.message };
         }
@@ -714,16 +729,17 @@ export const listRemindersTool = (phone: string) => tool({
 
 export const createWhatsAppReminderTool = (jid: string, senderPhone?: string) => tool({
     description: 'Create a reminder that will be sent via WhatsApp at a specific date/time. Use whenever the user asks to be reminded about something at a specific time (e.g. "me lembra hoje às 10h", "me avisa amanhã de manhã").',
-    inputSchema: jsonSchema<{ message: string; remindAt: string }>({
+    inputSchema: jsonSchema<{ message: string; remindAt: string; priority?: 'low' | 'normal' | 'high' }>({
         type: 'object',
         properties: {
             message: { type: 'string', description: 'What to remind the user about (the reminder text)' },
             remindAt: { type: 'string', description: 'ISO 8601 datetime for when to FIRE the reminder (America/Sao_Paulo timezone, e.g. 2026-04-10T10:00:00-03:00). This is when the alarm goes off, NOT dates mentioned inside the tasks.' },
+            priority: { type: 'string', enum: ['low', 'normal', 'high'], description: 'Priority of the reminder. Infer from urgency words: "urgente"/"importante" → high, default → normal.' },
         },
         required: ['message', 'remindAt'],
         additionalProperties: false,
     }),
-    execute: async ({ message, remindAt }) => {
+    execute: async ({ message, remindAt, priority = 'normal' }) => {
         try {
             const when = new Date(remindAt);
             if (isNaN(when.getTime())) return { error: 'Data/hora inválida.' };
@@ -735,6 +751,14 @@ export const createWhatsAppReminderTool = (jid: string, senderPhone?: string) =>
 
             logger.info(` Creating WhatsApp Reminder: "${message}" at ${when.toISOString()}`);
             const run = await reminderTask.trigger(payload, { delay: when });
+
+            // Persist to DB — this is the source of truth for listing/history
+            try {
+                const { ReminderService } = await import('@/lib/reminder-service');
+                await ReminderService.createWhatsApp(message, when, cleanPhone, jid, isGroup, run.id, priority);
+            } catch (dbErr: any) {
+                logger.warn('[Tool] createWhatsAppReminderTool: falha ao persistir no DB (não crítico):', dbErr.message);
+            }
 
             const whenStr = when.toLocaleString('pt-BR', {
                 timeZone: 'America/Sao_Paulo',
@@ -750,41 +774,47 @@ export const createWhatsAppReminderTool = (jid: string, senderPhone?: string) =>
 });
 
 export const cancelReminderTool = (phone: string) => tool({
-    description: 'Cancela um lembrete específico previamente agendado no Trigger.dev (Comando "cancela o lembrete de teste"). Use ID ou palavra-chave.',
+    description: 'Cancela um lembrete específico (Comando "cancela o lembrete de X", "remove o lembrete de comprar"). Use ID ou palavra-chave do texto do lembrete.',
     inputSchema: jsonSchema<{ search: string }>({
         type: 'object',
         properties: {
-            search: { type: 'string', description: 'ID exato da run (run_xxx) OU um trecho de texto do lembrete (ex: "comprar")' }
+            search: { type: 'string', description: 'ID exato do lembrete (UUID) OU um trecho de texto do lembrete (ex: "comprar")' }
         },
         required: ['search'],
         additionalProperties: false,
     }),
     execute: async ({ search }) => {
         try {
-            configure({ secretKey: process.env.TRIGGER_SECRET_KEY! });
-            // Se for ID direto
-            if (search.startsWith('run_')) {
-                await runs.cancel(search);
-                return { success: true, message: 'Lembrete cancelado com sucesso.' };
-            }
-            
-            // Busca por texto
-            const page = await runs.list({ 
-                taskIdentifier: 'send-reminder', 
-                limit: 20,
-                status: ['DELAYED', 'QUEUED', 'EXECUTING'] as any
-            });
-            
-            const runsDetailed = await Promise.all(page.data.map((r: any) => runs.retrieve(r.id).catch(() => r)));
-            const match = runsDetailed.find((r: any) => 
-                (r.payload?.senderPhone === phone || r.payload?.jid === phone) &&
-                (r.payload?.reminder || '').toLowerCase().includes(search.toLowerCase())
+            const { ReminderService } = await import('@/lib/reminder-service');
+            const cleanPhone = phone.replace(/\D/g, '');
+
+            // Busca no banco pelo texto
+            const pending = await ReminderService.getPendingByPhone(cleanPhone);
+            const match = pending.find(r =>
+                r.id === search ||
+                r.message.toLowerCase().includes(search.toLowerCase())
             );
-            
-            if (!match) return { error: 'Nenhum lembrete encontrado contendo esse texto.' };
-            
-            await runs.cancel(match.id);
-            return { success: true, message: `Lembrete "${match.payload?.reminder}" cancelado com sucesso.` };
+
+            if (!match) return { error: 'Nenhum lembrete pendente encontrado contendo esse texto.' };
+
+            // Cancela no Trigger.dev se tiver run associado
+            if (match.triggerRunId) {
+                try {
+                    configure({ secretKey: process.env.TRIGGER_SECRET_KEY! });
+                    await runs.cancel(match.triggerRunId);
+                } catch (triggerErr: any) {
+                    logger.warn('[cancelReminderTool] Trigger cancel falhou (pode já ter disparado):', triggerErr.message);
+                }
+            }
+
+            // Marca como cancelado no banco
+            await ReminderService.markCancelledByRunId(match.triggerRunId || '');
+            // Fallback direto por ID caso triggerRunId seja nulo
+            if (!match.triggerRunId) {
+                await supabase.from('reminders').update({ status: 'cancelled' }).eq('id', match.id);
+            }
+
+            return { success: true, message: `Lembrete "${match.message}" cancelado com sucesso.` };
         } catch (e: any) {
             return { error: 'Falha ao cancelar o lembrete: ' + e.message };
         }

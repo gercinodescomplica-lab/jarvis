@@ -406,6 +406,21 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
         const run = await reminderTask.trigger(reminderPayload, { delay: parsed.when });
         console.log('[Reminder] Run criado:', run.id);
 
+        // Persist to DB so the user can list/query reminders later
+        try {
+          const { ReminderService } = await import('@/lib/reminder-service');
+          await ReminderService.createWhatsApp(
+            parsed.what.trim(),
+            parsed.when,
+            resolvedSenderPhone,
+            phone,
+            isGroup,
+            run.id,
+          );
+        } catch (dbErr: any) {
+          logger.warn('[Reminder] Falha ao persistir no DB (não crítico):', dbErr.message);
+        }
+
         const whenStr = parsed.when.toLocaleString('pt-BR', {
           timeZone: 'America/Sao_Paulo',
           weekday: 'long',

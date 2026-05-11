@@ -13,7 +13,7 @@ export interface ReminderPayload {
 
 export const reminderTask = task({
   id: "send-reminder",
-  run: async (payload: ReminderPayload) => {
+  run: async (payload: ReminderPayload, { ctx }) => {
     const { senderPhone, jid, isGroup, reminder } = payload;
 
     const cleanPhone = senderPhone.replace(/\D/g, '');
@@ -49,9 +49,34 @@ export const reminderTask = task({
     if (!response.ok) {
       const err = await response.text();
       console.error(`[Reminder] Falha ao enviar para ${jid}:`, err);
+
+      // Mark as failed in DB before throwing so the status is accurate
+      try {
+        const { createClient } = await import('@supabase/supabase-js');
+        const db = createClient(
+          `https://${process.env.SUPABASE_PROJECT_ID}.supabase.co`,
+          process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+        );
+        await db.from('reminders').update({ status: 'failed' }).eq('trigger_run_id', ctx.run.id);
+      } catch { /* non-critical */ }
+
       throw new Error(`Evolution API error: ${err}`);
     }
 
     console.log(`[Reminder] Lembrete enviado para ${jid} (sender: ${cleanPhone})`);
+
+    // Mark as sent in DB
+    try {
+      const { createClient } = await import('@supabase/supabase-js');
+      const db = createClient(
+        `https://${process.env.SUPABASE_PROJECT_ID}.supabase.co`,
+        process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+      );
+      await db.from('reminders')
+        .update({ sent: true, status: 'sent' })
+        .eq('trigger_run_id', ctx.run.id);
+    } catch (e) {
+      console.warn('[Reminder] Falha ao marcar como enviado no DB (não crítico):', e);
+    }
   },
 });
