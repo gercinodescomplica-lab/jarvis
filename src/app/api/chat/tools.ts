@@ -936,3 +936,56 @@ export const createListarEmailsRemetenteTool = (phone: string, emailListRef?: { 
         }
     },
 });
+
+// ─── GRC Dashboard Sync ───────────────────────────────────────────────────────
+
+export const syncGRCDataTool = (managerId: string) => tool({
+    description: 'Sincroniza CXs, visitas e projetos do gerente com o dashboard comercial DRM. SEMPRE peça confirmação explícita do gerente antes de chamar esta ferramenta. Use somente quando o usuário confirmar que os dados estão corretos.',
+    inputSchema: jsonSchema<{
+        cx?: { upsert?: object[]; delete?: number[] };
+        visits?: { upsert?: object[]; delete?: number[] };
+        projects?: { upsert?: object[]; delete?: number[] };
+    }>({
+        type: 'object',
+        properties: {
+            cx: {
+                type: 'object',
+                description: 'CX (problemas/riscos de clientes) a criar/atualizar/deletar.',
+                properties: {
+                    upsert: { type: 'array', items: { type: 'object' } },
+                    delete: { type: 'array', items: { type: 'number' } },
+                },
+                additionalProperties: false,
+            },
+            visits: {
+                type: 'object',
+                description: 'Visitas a criar/atualizar/deletar.',
+                properties: {
+                    upsert: { type: 'array', items: { type: 'object' } },
+                    delete: { type: 'array', items: { type: 'number' } },
+                },
+                additionalProperties: false,
+            },
+            projects: {
+                type: 'object',
+                description: 'Projetos (pipeline) a criar/atualizar/deletar.',
+                properties: {
+                    upsert: { type: 'array', items: { type: 'object' } },
+                    delete: { type: 'array', items: { type: 'number' } },
+                },
+                additionalProperties: false,
+            },
+        },
+        additionalProperties: false,
+    }),
+    execute: async ({ cx, visits, projects }) => {
+        try {
+            const { syncWithFeedback } = await import('@/lib/dashboard-service');
+            const message = await syncWithFeedback({ managerId, cx, visits, projects } as any);
+            return { success: true, message };
+        } catch (err: any) {
+            logger.error('[Tool] syncGRCDataTool error:', err);
+            return { error: err.message || 'Falha ao sincronizar dados com o dashboard.' };
+        }
+    },
+});

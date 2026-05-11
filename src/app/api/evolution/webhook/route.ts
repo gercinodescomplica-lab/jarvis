@@ -17,8 +17,9 @@ import {
     getProjectDetails, getDRMData, getContracts, getContractsAnalytics, analyzeProjects, createRenderChartTool, searchDocuments, searchNotion,
     createMemoryTool, searchMemoriesTool, deleteMemoryTool,
     listRemindersTool, cancelReminderTool, updateProjectStatusTool, createWhatsAppReminderTool,
-    createListarEmailsRemetenteTool,
+    createListarEmailsRemetenteTool, syncGRCDataTool,
 } from '@/app/api/chat/tools';
+import { resolveManagerId } from '@/lib/dashboard-service';
 
 const logger = createLogger('evolution');
 
@@ -467,20 +468,26 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
     await supabase.from('chats').insert({ phone, role: 'user', content: text, created_at: Date.now() });
 
     // Busca histórico semântico (top 10 de 30, ponderado por recência + relevância)
-    const [messages, memoryContext, userName, isAllowedToSaveMemory] = await Promise.all([
+    const cleanSenderPhone = senderPhone || phone.replace(/@.+/, '').replace(/\D/g, '');
+    const [messages, memoryContext, userName, isAllowedToSaveMemory, managerId] = await Promise.all([
       getSemanticHistory(text, phone, 10),
       getMemoryContext(text, phone),
       getUserName(senderPhone || phone),
       canStoreMemory(phone),
+      resolveManagerId(cleanSenderPhone).catch(() => null),
     ]);
 
     // ── LLM com tools (o modelo decide qual ferramenta chamar) ─────────────
     const chartRef: { data: { type: string; title: string; data: any[] } | null } = { data: null };
     const emailListRef: { sent: boolean } = { sent: false };
 
+    const grcContext = managerId
+      ? `\n\n[GRC] Este usuário é um gerente comercial cadastrado (managerId: ${managerId}). Ele pode registrar CXs, visitas e projetos no dashboard DRM usando a ferramenta syncGRCData. Sempre confirme os dados com ele antes de sincronizar.`
+      : '';
+
     const result = await generateText({
       model: getModel(),
-      system: getWhatsAppSystemPrompt(memoryContext, userName),
+      system: getWhatsAppSystemPrompt(memoryContext, userName) + grcContext,
       messages,
       tools: {
         searchProjects,
@@ -502,6 +509,7 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
         cancelReminder: cancelReminderTool(phone),
         updateProjectStatus: updateProjectStatusTool,
         listarEmailsRemetente: createListarEmailsRemetenteTool(phone, emailListRef),
+        ...(managerId ? { syncGRCData: syncGRCDataTool(managerId) } : {}),
       },
       stopWhen: stepCountIs(5),
     });
