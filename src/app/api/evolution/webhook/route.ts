@@ -17,7 +17,7 @@ import {
     getProjectDetails, getDRMData, getContracts, getContractsAnalytics, analyzeProjects, createRenderChartTool, searchDocuments, searchNotion,
     createMemoryTool, searchMemoriesTool, deleteMemoryTool,
     listRemindersTool, cancelReminderTool, updateProjectStatusTool, createWhatsAppReminderTool,
-    createListarEmailsRemetenteTool, syncGRCDataTool,
+    createListarEmailsRemetenteTool, proposeGRCSyncTool,
 } from '@/app/api/chat/tools';
 import { resolveManagerId } from '@/lib/dashboard-service';
 
@@ -386,6 +386,36 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
         }
         return;
       }
+
+      if (pending.action === 'awaiting_grc_sync_confirmation') {
+        const normalized = text.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+        const isConfirm = /^(sim|s|yes|pode|confirma|confirmar|ok|isso|correto|certo|salva|salvar|vai|bora|pode salvar|ta bom|tá bom|pode ir)[\s!.]*$/.test(normalized);
+        const isCancel  = /^(nao|n|no|cancela|cancelar|para|errado|incorreto|mudei de ideia|esquece|nope)[\s!.]*$/.test(normalized);
+
+        if (isConfirm) {
+          await supabase.from('chats').delete().eq('phone', phone).eq('role', 'pending');
+          await markAsReading(phone);
+          await enviarAvisoWhatsApp(phone, '⏳ Salvando no dashboard...');
+          try {
+            const { syncWithFeedback } = await import('@/lib/dashboard-service');
+            const result = await syncWithFeedback(pending.payload);
+            await enviarAvisoWhatsApp(phone, result);
+          } catch {
+            await enviarAvisoWhatsApp(phone, '⚠️ Não consegui salvar os dados agora. Nenhuma informação foi alterada. Tente novamente mais tarde.');
+          }
+          return;
+        }
+
+        if (isCancel) {
+          await supabase.from('chats').delete().eq('phone', phone).eq('role', 'pending');
+          await enviarAvisoWhatsApp(phone, '🚫 Operação cancelada. Nenhum dado foi salvo.');
+          return;
+        }
+
+        // Resposta ambígua — reapresenta o resumo
+        await enviarAvisoWhatsApp(phone, `${pending.summary}\n\n_Responda *sim* para confirmar ou *não* para cancelar._`);
+        return;
+      }
     }
 
     // ── Guard: número solto sem pending state ativa ──
@@ -509,7 +539,7 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
         cancelReminder: cancelReminderTool(phone),
         updateProjectStatus: updateProjectStatusTool,
         listarEmailsRemetente: createListarEmailsRemetenteTool(phone, emailListRef),
-        ...(managerId ? { syncGRCData: syncGRCDataTool(managerId) } : {}),
+        ...(managerId ? { proposeGRCSync: proposeGRCSyncTool(phone, managerId) } : {}),
       },
       stopWhen: stepCountIs(5),
     });

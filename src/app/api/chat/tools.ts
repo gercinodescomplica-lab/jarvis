@@ -937,10 +937,18 @@ export const createListarEmailsRemetenteTool = (phone: string, emailListRef?: { 
     },
 });
 
-// ─── GRC Dashboard Sync ───────────────────────────────────────────────────────
+// ─── GRC Dashboard Sync (proposta + confirmação) ─────────────────────────────
+//
+// FLUXO OBRIGATÓRIO:
+//   1. LLM coleta os dados na conversa
+//   2. Chama proposeGRCSync → grava pending state → exibe resumo ao gerente
+//   3. Gerente confirma explicitamente
+//   4. Webhook detecta o pending state e executa o PATCH no dashboard
+//
+// A API do dashboard NÃO é chamada aqui. Só é chamada após confirmação no webhook.
 
-export const syncGRCDataTool = (managerId: string) => tool({
-    description: 'Sincroniza CXs, visitas e projetos do gerente com o dashboard comercial DRM. SEMPRE peça confirmação explícita do gerente antes de chamar esta ferramenta. Use somente quando o usuário confirmar que os dados estão corretos.',
+export const proposeGRCSyncTool = (phone: string, managerId: string) => tool({
+    description: `Apresenta um resumo estruturado dos dados GRC identificados (CXs, visitas, projetos) e aguarda confirmação explícita do gerente antes de salvar qualquer coisa. Use SEMPRE que o gerente quiser registrar ou atualizar dados no dashboard. NUNCA salva diretamente — apenas propõe e espera confirmação.`,
     inputSchema: jsonSchema<{
         cx?: { upsert?: object[]; delete?: number[] };
         visits?: { upsert?: object[]; delete?: number[] };
@@ -950,7 +958,7 @@ export const syncGRCDataTool = (managerId: string) => tool({
         properties: {
             cx: {
                 type: 'object',
-                description: 'CX (problemas/riscos de clientes) a criar/atualizar/deletar.',
+                description: 'CXs (problemas/riscos de clientes) a criar/atualizar/deletar.',
                 properties: {
                     upsert: { type: 'array', items: { type: 'object' } },
                     delete: { type: 'array', items: { type: 'number' } },
@@ -980,12 +988,52 @@ export const syncGRCDataTool = (managerId: string) => tool({
     }),
     execute: async ({ cx, visits, projects }) => {
         try {
-            const { syncWithFeedback } = await import('@/lib/dashboard-service');
-            const message = await syncWithFeedback({ managerId, cx, visits, projects } as any);
-            return { success: true, message };
+            // Build human-readable summary
+            const lines: string[] = [];
+
+            const cxNew    = (cx?.upsert?.filter((i: any) => !i.id) ?? []).length;
+            const cxUpd    = (cx?.upsert?.filter((i: any) =>  i.id) ?? []).length;
+            const cxDel    = (cx?.delete ?? []).length;
+            const visNew   = (visits?.upsert?.filter((i: any) => !i.id) ?? []).length;
+            const visUpd   = (visits?.upsert?.filter((i: any) =>  i.id) ?? []).length;
+            const visDel   = (visits?.delete ?? []).length;
+            const projNew  = (projects?.upsert?.filter((i: any) => !i.id) ?? []).length;
+            const projUpd  = (projects?.upsert?.filter((i: any) =>  i.id) ?? []).length;
+            const projDel  = (projects?.delete ?? []).length;
+
+            if (cxNew)   lines.push(`• ${cxNew} novo(s) CX`);
+            if (cxUpd)   lines.push(`• ${cxUpd} CX atualizado(s)`);
+            if (cxDel)   lines.push(`• ${cxDel} CX removido(s)`);
+            if (visNew)  lines.push(`• ${visNew} nova(s) visita(s)`);
+            if (visUpd)  lines.push(`• ${visUpd} visita(s) atualizada(s)`);
+            if (visDel)  lines.push(`• ${visDel} visita(s) removida(s)`);
+            if (projNew) lines.push(`• ${projNew} novo(s) projeto(s)`);
+            if (projUpd) lines.push(`• ${projUpd} projeto(s) atualizado(s)`);
+            if (projDel) lines.push(`• ${projDel} projeto(s) removido(s)`);
+
+            if (lines.length === 0) {
+                return { result: 'Nenhum dado identificado para salvar.' };
+            }
+
+            const summary = `📋 *Resumo do que será salvo no dashboard:*\n\n${lines.join('\n')}\n\n✅ Confirma o envio? Responda *sim* para salvar ou *não* para cancelar.`;
+
+            // Persist pending state — the actual sync happens in the webhook after confirmation
+            await supabase.from('chats').insert({
+                phone,
+                role: 'pending',
+                content: JSON.stringify({
+                    action: 'awaiting_grc_sync_confirmation',
+                    managerId,
+                    payload: { managerId, cx, visits, projects },
+                    summary,
+                }),
+                created_at: Date.now(),
+            });
+
+            return { result: summary };
         } catch (err: any) {
-            logger.error('[Tool] syncGRCDataTool error:', err);
-            return { error: err.message || 'Falha ao sincronizar dados com o dashboard.' };
+            logger.error('[Tool] proposeGRCSyncTool error:', err);
+            return { error: err.message || 'Falha ao preparar proposta de sync.' };
         }
     },
 });
