@@ -8,10 +8,9 @@
  */
 
 import * as dotenv from 'dotenv';
-import path from 'path';
 import postgres from 'postgres';
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config();
 
 const sql = postgres(process.env.DATABASE_URL!);
 
@@ -23,38 +22,13 @@ const JID   = `${PHONE}@s.whatsapp.net`;
 
 async function applyMigration() {
   console.log('\n📦 Aplicando migração de schema...');
-
-  const { error } = await supabase.rpc('exec_sql' as any, {
-    sql: `
-      ALTER TABLE public.reminders
-        ADD COLUMN IF NOT EXISTS phone          TEXT,
-        ADD COLUMN IF NOT EXISTS jid            TEXT,
-        ADD COLUMN IF NOT EXISTS is_group       BOOLEAN NOT NULL DEFAULT false,
-        ADD COLUMN IF NOT EXISTS trigger_run_id TEXT,
-        ADD COLUMN IF NOT EXISTS status         TEXT NOT NULL DEFAULT 'pending'
-                                                CHECK (status IN ('pending', 'sent', 'cancelled', 'failed')),
-        ADD COLUMN IF NOT EXISTS source         TEXT NOT NULL DEFAULT 'whatsapp'
-                                                CHECK (source IN ('whatsapp', 'telegram', 'chat')),
-        ADD COLUMN IF NOT EXISTS priority       TEXT NOT NULL DEFAULT 'normal'
-                                                CHECK (priority IN ('low', 'normal', 'high')),
-        ADD COLUMN IF NOT EXISTS recurrence     TEXT;
-    `
-  });
-
-  // exec_sql pode não existir — vamos tentar direto pelo postgres driver
-  if (error) {
-    console.warn('  ⚠️  RPC exec_sql indisponível, tentando via postgres driver...');
-    await applyMigrationViaPg();
-  } else {
-    console.log('  ✅ Schema atualizado via RPC');
-  }
+  await applyMigrationViaPg();
 }
 
 async function applyMigrationViaPg() {
-  const postgres = (await import('postgres')).default;
-  const sql = postgres(process.env.DATABASE_URL!);
+  const migSql = postgres(process.env.DATABASE_URL!);
 
-  await sql`
+  await migSql`
     ALTER TABLE public.reminders
       ADD COLUMN IF NOT EXISTS phone          TEXT,
       ADD COLUMN IF NOT EXISTS jid            TEXT,
@@ -69,17 +43,17 @@ async function applyMigrationViaPg() {
       ADD COLUMN IF NOT EXISTS recurrence     TEXT
   `;
 
-  await sql`UPDATE public.reminders SET status = 'sent' WHERE sent = true AND status = 'pending'`;
-  await sql`
+  await migSql`UPDATE public.reminders SET status = 'sent' WHERE sent = true AND status = 'pending'`;
+  await migSql`
     CREATE INDEX IF NOT EXISTS idx_reminders_phone_status
       ON public.reminders(phone, status, remind_at)
   `;
-  await sql`
+  await migSql`
     CREATE INDEX IF NOT EXISTS idx_reminders_trigger_run_id
       ON public.reminders(trigger_run_id) WHERE trigger_run_id IS NOT NULL
   `;
 
-  await sql.end();
+  await migSql.end();
   console.log('  ✅ Schema atualizado via postgres driver');
 }
 
