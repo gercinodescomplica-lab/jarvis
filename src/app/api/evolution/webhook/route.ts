@@ -683,6 +683,9 @@ export async function POST(req: Request) {
     const payload = await req.json();
     const event = payload.event;
 
+    // Temporary debug: log all incoming events to diagnose format
+    console.log('[Webhook] event received:', JSON.stringify({ event, keys: Object.keys(payload) }));
+
     // Accept both formats: "messages.upsert" and "MESSAGES_UPSERT" (Evolution v2.3+)
     const normalizedEvent = (event || '').toLowerCase().replace(/_/g, '.');
     if (normalizedEvent !== 'messages.upsert') return NextResponse.json({ status: 'ignored' });
