@@ -683,7 +683,9 @@ export async function POST(req: Request) {
     const payload = await req.json();
     const event = payload.event;
 
-    if (event !== 'messages.upsert') return NextResponse.json({ status: 'ignored' });
+    // Accept both formats: "messages.upsert" and "MESSAGES_UPSERT" (Evolution v2.3+)
+    const normalizedEvent = (event || '').toLowerCase().replace(/_/g, '.');
+    if (normalizedEvent !== 'messages.upsert') return NextResponse.json({ status: 'ignored' });
 
     const msgData = payload.data?.message;
     const key = payload.data?.key;
