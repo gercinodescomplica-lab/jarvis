@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/db';
 import { waitUntil } from '@vercel/functions';
+
+export const maxDuration = 60; // segundos — necessário para LLM + envio via Evolution
 import { saveMemory, saveDocument, getMemoryContext, canStoreMemory, getSemanticHistory, getUserName } from '@/lib/memory-service';
 import { reminderTask } from '@/trigger/reminder';
 import { SpeechClient } from '@google-cloud/speech';
