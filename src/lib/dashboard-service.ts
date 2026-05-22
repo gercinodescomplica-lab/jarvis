@@ -90,6 +90,7 @@ export async function resolveManagerId(rawPhone: string): Promise<string | null>
 // ─── syncManagerData ──────────────────────────────────────────────────────────
 
 export async function syncManagerData(payload: SyncPayload): Promise<SyncResult> {
+    console.log('[GRC Sync] payload:', JSON.stringify(payload, null, 2));
     const res = await fetch(`${baseUrl()}/api/external/v1/grc/sync`, {
         method: 'PATCH',
         headers: authHeaders(),
@@ -97,8 +98,11 @@ export async function syncManagerData(payload: SyncPayload): Promise<SyncResult>
     });
 
     if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(`Sync failed (${res.status}): ${err.error ?? res.statusText}`);
+        const errText = await res.text().catch(() => '');
+        console.error('[GRC Sync] error response:', res.status, errText);
+        let errMsg: string;
+        try { errMsg = JSON.parse(errText)?.error ?? errText; } catch { errMsg = errText; }
+        throw new Error(`Sync failed (${res.status}): ${errMsg}`);
     }
 
     return res.json();
