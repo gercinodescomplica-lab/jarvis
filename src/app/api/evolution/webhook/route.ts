@@ -91,7 +91,9 @@ async function transcribeAudio(buffer: Buffer, mimetype: string): Promise<string
       audio: { content: buffer.toString('base64') },
       config: {
         encoding,
-        sampleRateHertz: 16000,
+        // sampleRateHertz omitido para OGG_OPUS/WEBM_OPUS — o codec é self-describing
+        // e definir 16000 aqui faz o Google Speech falhar silenciosamente em áudios a 48kHz (ex: iOS)
+        ...(encoding === 'MP3' || encoding === 'LINEAR16' ? { sampleRateHertz: 16000 } : {}),
         languageCode: 'pt-BR',
         alternativeLanguageCodes: ['en-US'],
         model: 'latest_long',

@@ -19,6 +19,7 @@ export async function enviarAvisoWhatsApp(telefone: string, mensagemTexto: strin
     console.log(`[CRON] Resumo enviado com sucesso para ${telefone}!`);
   } catch (error) {
     console.error(`[CRON] Falha no envio:`, error);
+    throw error;
   }
 }
 

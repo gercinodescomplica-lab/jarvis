@@ -34,8 +34,12 @@ export const sendAgendaTask = schedules.task({
     const recipients = [...new Set([primary, dani, grupoGe, ...extra])];
 
     for (const dest of recipients) {
-      await enviarAvisoWhatsApp(dest, relatorio);
-      console.log(`[Agenda] ✅ Agenda enviada para ${dest}.`);
+      try {
+        await enviarAvisoWhatsApp(dest, relatorio);
+        console.log(`[Agenda] ✅ Agenda enviada para ${dest}.`);
+      } catch (err) {
+        console.error(`[Agenda] ❌ Falha ao enviar para ${dest}:`, err);
+      }
     }
   },
 });
