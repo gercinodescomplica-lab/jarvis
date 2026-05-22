@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/db';
 import { waitUntil } from '@vercel/functions';
+import OpenAI from 'openai';
 
 export const maxDuration = 60; // segundos — necessário para LLM + envio via Evolution
 import { saveMemory, saveDocument, getMemoryContext, canStoreMemory, getSemanticHistory, getUserName } from '@/lib/memory-service';
@@ -78,13 +79,46 @@ function getSpeechClient() {
   return new SpeechClient({ keyFilename: 'google-credentials.json' });
 }
 
+// Formatos não suportados pelo Google Speech v1 — roteados para Whisper via OpenRouter
+const WHISPER_MIMETYPES = ['audio/mp4', 'audio/aac', 'audio/m4a', 'audio/x-m4a', 'audio/mpeg4'];
+
+async function transcribeWithWhisper(buffer: Buffer, mimetype: string): Promise<string> {
+  const openrouter = new OpenAI({
+    apiKey: process.env.OPENROUTER_API_KEY_WHYSPER,
+    baseURL: 'https://openrouter.ai/api/v1',
+  });
+
+  const cleanMime = mimetype.split(';')[0].trim();
+  const ext = cleanMime.includes('m4a') ? 'm4a' : cleanMime.includes('aac') ? 'aac' : 'mp4';
+  const file = new File([new Uint8Array(buffer)], `audio.${ext}`, { type: cleanMime });
+
+  logger.info(`Transcrevendo ${(buffer.length / 1024).toFixed(1)} KB via Whisper/OpenRouter (${cleanMime})`);
+
+  const response = await openrouter.audio.transcriptions.create({
+    file,
+    model: 'openai/whisper-1',
+    language: 'pt',
+  });
+
+  const text = response.text?.trim() || '';
+  logger.info(`Whisper resultado: "${text.slice(0, 100)}"`);
+  return text;
+}
+
 async function transcribeAudio(buffer: Buffer, mimetype: string): Promise<string> {
+  logger.info(`[STT] mimetype recebido: "${mimetype}" | tamanho: ${(buffer.length / 1024).toFixed(1)} KB`);
+
+  // iPhone e arquivos de áudio MP4/AAC não são suportados pelo Google Speech v1
+  if (WHISPER_MIMETYPES.some(m => mimetype?.toLowerCase().startsWith(m))) {
+    return transcribeWithWhisper(buffer, mimetype);
+  }
+
   let encoding: 'OGG_OPUS' | 'MP3' | 'WEBM_OPUS' | 'LINEAR16' = 'OGG_OPUS';
   if (mimetype?.includes('mp3') || mimetype?.includes('mpeg')) encoding = 'MP3';
   else if (mimetype?.includes('webm')) encoding = 'WEBM_OPUS';
   else if (mimetype?.includes('wav')) encoding = 'LINEAR16';
 
-  logger.info(`Transcrevendo ${(buffer.length / 1024).toFixed(1)} KB via Google Speech (${encoding})`);
+  logger.info(`Transcrevendo via Google Speech (${encoding})`);
 
   const [response] = await retryAsync(
     () => getSpeechClient().recognize({
