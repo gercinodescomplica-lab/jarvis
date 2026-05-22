@@ -988,34 +988,60 @@ export const proposeGRCSyncTool = (phone: string, managerId: string) => tool({
     }),
     execute: async ({ cx, visits, projects }) => {
         try {
-            // Build human-readable summary
-            const lines: string[] = [];
+            const sections: string[] = [];
 
-            const cxNew    = (cx?.upsert?.filter((i: any) => !i.id) ?? []).length;
-            const cxUpd    = (cx?.upsert?.filter((i: any) =>  i.id) ?? []).length;
-            const cxDel    = (cx?.delete ?? []).length;
-            const visNew   = (visits?.upsert?.filter((i: any) => !i.id) ?? []).length;
-            const visUpd   = (visits?.upsert?.filter((i: any) =>  i.id) ?? []).length;
-            const visDel   = (visits?.delete ?? []).length;
-            const projNew  = (projects?.upsert?.filter((i: any) => !i.id) ?? []).length;
-            const projUpd  = (projects?.upsert?.filter((i: any) =>  i.id) ?? []).length;
-            const projDel  = (projects?.delete ?? []).length;
+            // ── CXs ──────────────────────────────────────────────────────────
+            const cxUpsert = cx?.upsert ?? [];
+            const cxDel    = cx?.delete ?? [];
+            if (cxUpsert.length > 0 || cxDel.length > 0) {
+                const cxLines: string[] = ['*CXs (problemas de clientes):*'];
+                for (const item of cxUpsert as any[]) {
+                    const tag    = item.id ? '✏️ atualizar' : '➕ novo';
+                    const crit   = item.criticidade ? ` • ${item.criticidade}` : '';
+                    const status = item.status ? ` • ${item.status}` : '';
+                    cxLines.push(`  ${tag}: *${item.cliente ?? '—'}* — ${item.titulo ?? '—'}${crit}${status}`);
+                    if (item.problema) cxLines.push(`    _Problema: ${item.problema}_`);
+                }
+                for (const delId of cxDel) cxLines.push(`  🗑️ remover ID ${delId}`);
+                sections.push(cxLines.join('\n'));
+            }
 
-            if (cxNew)   lines.push(`• ${cxNew} novo(s) CX`);
-            if (cxUpd)   lines.push(`• ${cxUpd} CX atualizado(s)`);
-            if (cxDel)   lines.push(`• ${cxDel} CX removido(s)`);
-            if (visNew)  lines.push(`• ${visNew} nova(s) visita(s)`);
-            if (visUpd)  lines.push(`• ${visUpd} visita(s) atualizada(s)`);
-            if (visDel)  lines.push(`• ${visDel} visita(s) removida(s)`);
-            if (projNew) lines.push(`• ${projNew} novo(s) projeto(s)`);
-            if (projUpd) lines.push(`• ${projUpd} projeto(s) atualizado(s)`);
-            if (projDel) lines.push(`• ${projDel} projeto(s) removido(s)`);
+            // ── Visitas ───────────────────────────────────────────────────────
+            const visUpsert = visits?.upsert ?? [];
+            const visDel    = visits?.delete ?? [];
+            if (visUpsert.length > 0 || visDel.length > 0) {
+                const visLines: string[] = ['*Visitas:*'];
+                for (const item of visUpsert as any[]) {
+                    const tag   = item.id ? '✏️ atualizar' : '➕ nova';
+                    const local = item.local ? ` • ${item.local}` : '';
+                    const data  = item.data ? ` • ${item.data}` : '';
+                    visLines.push(`  ${tag}: *${item.titulo ?? '—'}*${local}${data}`);
+                }
+                for (const delId of visDel) visLines.push(`  🗑️ remover ID ${delId}`);
+                sections.push(visLines.join('\n'));
+            }
 
-            if (lines.length === 0) {
+            // ── Projetos ──────────────────────────────────────────────────────
+            const projUpsert = projects?.upsert ?? [];
+            const projDel    = projects?.delete ?? [];
+            if (projUpsert.length > 0 || projDel.length > 0) {
+                const projLines: string[] = ['*Projetos:*'];
+                for (const item of projUpsert as any[]) {
+                    const tag   = item.id ? '✏️ atualizar' : '➕ novo';
+                    const orgao = item.orgao ? ` • ${item.orgao}` : '';
+                    const temp  = item.temperature ? ` • ${item.temperature}` : '';
+                    const valor = item.value != null ? ` • R$ ${Number(item.value).toLocaleString('pt-BR')}` : '';
+                    projLines.push(`  ${tag}: *${item.name ?? '—'}*${orgao}${temp}${valor}`);
+                }
+                for (const delId of projDel) projLines.push(`  🗑️ remover ID ${delId}`);
+                sections.push(projLines.join('\n'));
+            }
+
+            if (sections.length === 0) {
                 return { result: 'Nenhum dado identificado para salvar.' };
             }
 
-            const summary = `📋 *Resumo do que será salvo no dashboard:*\n\n${lines.join('\n')}\n\n✅ Confirma o envio? Responda *sim* para salvar ou *não* para cancelar.`;
+            const summary = `📋 *Resumo do que será salvo no dashboard:*\n\n${sections.join('\n\n')}\n\n✅ Confirma o envio? Responda *sim* para salvar ou *não* para cancelar.`;
 
             // Persist pending state — the actual sync happens in the webhook after confirmation
             await supabase.from('chats').insert({

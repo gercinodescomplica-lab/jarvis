@@ -79,8 +79,8 @@ function getSpeechClient() {
   return new SpeechClient({ keyFilename: 'google-credentials.json' });
 }
 
-// Formatos não suportados pelo Google Speech v1 — roteados para Whisper via OpenRouter
-const WHISPER_MIMETYPES = ['audio/mp4', 'audio/aac', 'audio/m4a', 'audio/x-m4a', 'audio/mpeg4'];
+// Formatos roteados para Whisper via OpenRouter (Google Speech falha com Opus a sample rate 0)
+const WHISPER_MIMETYPES = ['audio/ogg', 'audio/mp4', 'audio/aac', 'audio/m4a', 'audio/x-m4a', 'audio/mpeg4'];
 
 async function transcribeWithWhisper(buffer: Buffer, mimetype: string): Promise<string> {
   const openrouter = new OpenAI({
@@ -89,7 +89,7 @@ async function transcribeWithWhisper(buffer: Buffer, mimetype: string): Promise<
   });
 
   const cleanMime = mimetype.split(';')[0].trim();
-  const ext = cleanMime.includes('m4a') ? 'm4a' : cleanMime.includes('aac') ? 'aac' : 'mp4';
+  const ext = cleanMime.includes('ogg') ? 'ogg' : cleanMime.includes('m4a') ? 'm4a' : cleanMime.includes('aac') ? 'aac' : 'mp4';
   const file = new File([new Uint8Array(buffer)], `audio.${ext}`, { type: cleanMime });
 
   logger.info(`Transcrevendo ${(buffer.length / 1024).toFixed(1)} KB via Whisper/OpenRouter (${cleanMime})`);
@@ -329,10 +329,10 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
   try {
     await markAsReading(phone);
 
-    // ── Verifica acao pendente (aguardando titulo de PDF ou memoria) ──────────
+    // ── Verifica acao pendente (aguardando titulo de PDF, memoria ou confirmacao GRC) ──
     const { data: pendingRow } = await supabase
       .from('chats')
-      .select('content')
+      .select('content, created_at')
       .eq('phone', phone)
       .eq('role', 'pending')
       .order('created_at', { ascending: false })
@@ -341,8 +341,19 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
 
     logger.info(`[PendingState] phone=${phone} pendingRow=${pendingRow ? 'found' : 'null'}`);
 
-    if (pendingRow) {
-      const pending = JSON.parse(pendingRow.content as string);
+    // Expiração automática: pending states com mais de 30 min são descartados
+    const PENDING_TTL_MS = 30 * 60 * 1000;
+    const activePendingRow = pendingRow && (Date.now() - Number(pendingRow.created_at)) < PENDING_TTL_MS
+      ? pendingRow
+      : null;
+
+    if (pendingRow && !activePendingRow) {
+      await supabase.from('chats').delete().eq('phone', phone).eq('role', 'pending');
+      logger.info(`[PendingState] Expirado (${Math.round((Date.now() - Number(pendingRow.created_at)) / 60000)} min) — descartado`);
+    }
+
+    if (activePendingRow) {
+      const pending = JSON.parse(activePendingRow.content as string);
       logger.info(`[PendingState] action=${pending.action} text="${text}"`);
 
       if (pending.action === 'awaiting_pdf_title') {
@@ -431,16 +442,17 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
         const isCancel  = /^(nao|n|no|cancela|cancelar|para|errado|incorreto|mudei de ideia|esquece|nope)[\s!.]*$/.test(normalized);
 
         if (isConfirm) {
+          // Rate limit: evita double-sync se o gerente mandar "sim" duas vezes rápido
+          if (!checkRateLimit(`grc_sync:${phone}`, 1)) {
+            logger.warn(`[GRC] Rate limit de sync atingido para ${phone}`);
+            return;
+          }
           await supabase.from('chats').delete().eq('phone', phone).eq('role', 'pending');
           await markAsReading(phone);
           await enviarAvisoWhatsApp(phone, '⏳ Salvando no dashboard...');
-          try {
-            const { syncWithFeedback } = await import('@/lib/dashboard-service');
-            const result = await syncWithFeedback(pending.payload);
-            await enviarAvisoWhatsApp(phone, result);
-          } catch {
-            await enviarAvisoWhatsApp(phone, '⚠️ Não consegui salvar os dados agora. Nenhuma informação foi alterada. Tente novamente mais tarde.');
-          }
+          const { syncWithFeedback } = await import('@/lib/dashboard-service');
+          const result = await syncWithFeedback(pending.payload);
+          await enviarAvisoWhatsApp(phone, result);
           return;
         }
 

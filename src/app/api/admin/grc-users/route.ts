@@ -26,12 +26,22 @@ export async function POST(req: Request) {
   if (!body.manager_id?.trim()) return NextResponse.json({ error: 'manager_id é obrigatório' }, { status: 400 });
   if (!body.display_name?.trim()) return NextResponse.json({ error: 'display_name é obrigatório' }, { status: 400 });
 
+  const active = body.active ?? true;
+  const displayName = body.display_name.trim();
+
   const { data, error } = await supabase
     .from('grc_users')
-    .insert({ phone, manager_id: body.manager_id.trim(), display_name: body.display_name.trim(), active: body.active ?? true })
+    .insert({ phone, manager_id: body.manager_id.trim(), display_name: displayName, active })
     .select()
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Garante que o gerente já entra autorizado na whitelist com permissão de memória
+  await supabase.from('whitelist').upsert(
+    { phone, name: displayName, active, can_store_memory: true },
+    { onConflict: 'phone' }
+  );
+
   return NextResponse.json(data, { status: 201 });
 }

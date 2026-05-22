@@ -123,7 +123,8 @@ export async function syncWithFeedback(payload: SyncPayload): Promise<string> {
         return lines.length > 0
             ? `✅ Salvo no dashboard!\n${lines.join('\n')}`
             : '✅ Nenhuma alteração necessária.';
-    } catch {
-        return '⚠️ Não consegui salvar os dados agora. Nenhuma informação foi alterada. Tente novamente mais tarde.';
+    } catch (err: any) {
+        const detail = err?.message ? `\n_Detalhe: ${err.message}_` : '';
+        return `⚠️ Não consegui salvar os dados agora. Nenhuma informação foi alterada.${detail}\n\nTente novamente ou verifique se o dashboard está acessível.`;
     }
 }
