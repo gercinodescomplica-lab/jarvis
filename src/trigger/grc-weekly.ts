@@ -54,7 +54,8 @@ export const grcWeeklyCollectionTask = schedules.task({
           `• Atualização em algum *projeto* do pipeline?\n\n` +
           `Pode me contar tudo de uma vez ou um por um, como preferir. 😊`;
 
-        await sendWhatsApp(manager.phone, message);
+        const phone = /^55/.test(manager.phone) ? manager.phone : `55${manager.phone}`;
+        await sendWhatsApp(phone, message);
         console.log(`[GRC Weekly] ✅ Mensagem enviada para ${manager.display_name} (${manager.phone})`);
       })
     );
