@@ -450,104 +450,98 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
       if (pending.action === 'awaiting_grc_collection') {
         await markAsReading(phone);
 
-        // LLM extrai visitas/CX/projetos do texto e decide se faltam infos
+        // Histórico completo da conversa — o LLM vê tudo e produz estado atualizado
+        const history: Array<{role: 'user'|'assistant', content: string}> = pending.history || [];
+        history.push({ role: 'user', content: text });
+
+        const today = new Date();
+        const dayOffset = (d: number) => new Date(today.getTime() - d * 86400000).toISOString().split('T')[0];
+
         const extractResult = await generateText({
           model: getModel(),
-          system: `Você é um assistente de coleta de dados GRC para gerentes comerciais da Prodam (empresa de tecnologia da Prefeitura de São Paulo).
+          system: `Você é um assistente de coleta de dados GRC para gerentes comerciais da Prodam (Prefeitura de São Paulo).
+O gerente responde perguntas sobre a semana: visitas realizadas, CXs (problemas/riscos de clientes) e projetos do pipeline.
+Hoje: ${dayOffset(0)} | ontem: ${dayOffset(1)} | quinta: ${dayOffset(today.getDay() === 5 ? 1 : 2)} | quarta: ${dayOffset(today.getDay() === 5 ? 2 : 3)} | terça: ${dayOffset(today.getDay() === 5 ? 3 : 4)} | segunda: ${dayOffset(today.getDay() === 5 ? 4 : 5)}
 
-O gerente está respondendo à pergunta semanal sobre: visitas realizadas, CXs (problemas/riscos de clientes) e atualizações de projetos no pipeline.
+Glossário — use SEMPRE a forma oficial nos campos extraídos:
+- SEGES = Secretaria de Gestão (variações: Sérgios, Sergio, Sergies, Serges → SEGES)
+- SMIT = Sec. Municipal de Inovação e Tecnologia (variações: Smith, Smit → SMIT)
+- SMSP = Sec. Municipal de Segurança Pública
+- SEFAZ = Sec. Municipal de Finanças
+- PGM = Procuradoria Geral do Município
+- Casa Civil = Casa Civil do Município de SP
+- CX = problema ou risco de cliente (nunca "ex")
+- Prodam = empresa de TI da PMSP
 
-Dados já coletados nessa sessão (pode ser vazio): ${JSON.stringify(pending.collectedData || {})}
+Com base em TODA a conversa, retorne o estado COMPLETO e ATUALIZADO.
+Se o gerente corrigiu algo, use o valor mais recente — NÃO acumule versões antigas.
 
-Analise a mensagem do gerente e retorne JSON com:
+Retorne JSON:
 {
-  "extracted": {
-    "visits": [{ "titulo": "...", "local": "...", "motivo": "...", "data": "YYYY-MM-DD" }],
-    "cx": [{ "cliente": "...", "titulo": "...", "problema": "...", "criticidade": "baixa|media|alta" }],
-    "projects": [{ "name": "...", "description": "..." }]
+  "state": {
+    "visits": [{ "local": "NOME_OFICIAL", "motivo": "acompanhamento|apresentacao|reuniao|outro", "data": "YYYY-MM-DD" }],
+    "cx": [{ "cliente": "NOME_OFICIAL", "titulo": "resumo curto", "problema": "descrição", "criticidade": "baixa|media|alta" }],
+    "projects": [{ "name": "nome do projeto", "description": "descrição", "orgao": "órgão cliente" }]
   },
-  "missingInfo": "string com perguntas de follow-up se faltar informação essencial (ex: horário/local de visita), ou null se tiver tudo",
+  "followUp": "pergunta objetiva se faltar info essencial, ou null",
   "readyToConfirm": true/false
 }
-
-Regras:
-- "data" de visita: inferir da conversa (hoje=${new Date().toISOString().split('T')[0]}, segunda=data anterior, terça=data anterior, etc.)
-- Se o gerente mencionou local mas não data, ou vice-versa, peça apenas o que falta
-- "readyToConfirm": true somente quando não houver dúvidas essenciais
-- Glossário: CX = problema/risco de cliente (não confundir com ex-cliente), SMIT/SMSP/PGM/Casa Civil = secretarias municipais de SP
-- Responda APENAS com JSON válido, sem markdown`,
-          messages: [{ role: 'user', content: text }],
+Responda APENAS com JSON válido, sem markdown.`,
+          messages: history,
         });
 
-        let extracted: any = {};
-        let missingInfo: string | null = null;
+        let state: any = { visits: [], cx: [], projects: [] };
+        let followUp: string | null = null;
         let readyToConfirm = false;
         try {
           const parsed = JSON.parse((extractResult.text || '').replace(/```json\n?|```/g, '').trim());
-          extracted = parsed.extracted || {};
-          missingInfo = parsed.missingInfo || null;
+          state = parsed.state || state;
+          followUp = parsed.followUp || null;
           readyToConfirm = !!parsed.readyToConfirm;
         } catch { /* usa defaults */ }
 
-        // Merge com dados já coletados anteriormente
-        const prev = pending.collectedData || {};
-        const merged = {
-          visits: [...(prev.visits || []), ...(extracted.visits || [])],
-          cx: [...(prev.cx || []), ...(extracted.cx || [])],
-          projects: [...(prev.projects || []), ...(extracted.projects || [])],
-        };
+        await supabase.from('chats').delete().eq('phone', phone).eq('role', 'pending');
 
-        if (!readyToConfirm && missingInfo) {
-          // Ainda faltam informações — atualiza o pending e faz follow-up
-          await supabase.from('chats').delete().eq('phone', phone).eq('role', 'pending');
+        if (!readyToConfirm && followUp) {
+          history.push({ role: 'assistant', content: followUp });
           await supabase.from('chats').insert({
             phone,
             role: 'pending',
-            content: JSON.stringify({
-              action: 'awaiting_grc_collection',
-              managerId: pending.managerId,
-              collectedData: merged,
-            }),
+            content: JSON.stringify({ action: 'awaiting_grc_collection', managerId: pending.managerId, history }),
             created_at: Date.now(),
           });
-          await enviarAvisoWhatsApp(phone, missingInfo);
+          await enviarAvisoWhatsApp(phone, followUp);
           return;
         }
 
         // Tudo coletado — monta resumo e pede confirmação
         const lines: string[] = ['📋 *Resumo do que vou registrar:*\n'];
-        if (merged.visits?.length) {
+        if (state.visits?.length) {
           lines.push('*Visitas:*');
-          merged.visits.forEach((v: any) => lines.push(`• ${v.titulo || v.local} — ${v.data || 'sem data'}`));
+          state.visits.forEach((v: any) => lines.push(`• ${v.local} — ${v.data || 'sem data'}${v.motivo ? ` (${v.motivo})` : ''}`));
         }
-        if (merged.cx?.length) {
+        if (state.cx?.length) {
           lines.push('\n*CXs:*');
-          merged.cx.forEach((c: any) => lines.push(`• ${c.cliente}: ${c.titulo || c.problema}`));
+          state.cx.forEach((c: any) => lines.push(`• ${c.cliente}: ${c.titulo || c.problema} [${c.criticidade || '?'}]`));
         }
-        if (merged.projects?.length) {
+        if (state.projects?.length) {
           lines.push('\n*Projetos:*');
-          merged.projects.forEach((p: any) => lines.push(`• ${p.name}`));
+          state.projects.forEach((p: any) => lines.push(`• ${p.name}${p.orgao ? ` — ${p.orgao}` : ''}`));
         }
         lines.push('\n_Responda *sim* para confirmar ou *não* para cancelar._');
         const summary = lines.join('\n');
 
         const syncPayload = {
           managerId: pending.managerId,
-          ...(merged.visits?.length ? { visits: { upsert: merged.visits } } : {}),
-          ...(merged.cx?.length ? { cx: { upsert: merged.cx } } : {}),
-          ...(merged.projects?.length ? { projects: { upsert: merged.projects } } : {}),
+          ...(state.visits?.length ? { visits: { upsert: state.visits } } : {}),
+          ...(state.cx?.length ? { cx: { upsert: state.cx } } : {}),
+          ...(state.projects?.length ? { projects: { upsert: state.projects } } : {}),
         };
 
-        await supabase.from('chats').delete().eq('phone', phone).eq('role', 'pending');
         await supabase.from('chats').insert({
           phone,
           role: 'pending',
-          content: JSON.stringify({
-            action: 'awaiting_grc_sync_confirmation',
-            managerId: pending.managerId,
-            payload: syncPayload,
-            summary,
-          }),
+          content: JSON.stringify({ action: 'awaiting_grc_sync_confirmation', managerId: pending.managerId, payload: syncPayload, summary }),
           created_at: Date.now(),
         });
         await enviarAvisoWhatsApp(phone, summary);
