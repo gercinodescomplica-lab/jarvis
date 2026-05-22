@@ -83,24 +83,34 @@ function getSpeechClient() {
 const WHISPER_MIMETYPES = ['audio/ogg', 'audio/mp4', 'audio/aac', 'audio/m4a', 'audio/x-m4a', 'audio/mpeg4'];
 
 async function transcribeWithWhisper(buffer: Buffer, mimetype: string): Promise<string> {
-  const openrouter = new OpenAI({
-    apiKey: process.env.OPENROUTER_API_KEY_WHYSPER,
-    baseURL: 'https://openrouter.ai/api/v1',
-  });
-
   const cleanMime = mimetype.split(';')[0].trim();
-  const ext = cleanMime.includes('ogg') ? 'ogg' : cleanMime.includes('m4a') ? 'm4a' : cleanMime.includes('aac') ? 'aac' : 'mp4';
-  const file = new File([new Uint8Array(buffer)], `audio.${ext}`, { type: cleanMime });
-
   logger.info(`Transcrevendo ${(buffer.length / 1024).toFixed(1)} KB via Whisper/OpenRouter (${cleanMime})`);
 
-  const response = await openrouter.audio.transcriptions.create({
-    file,
-    model: 'openai/whisper-1',
-    language: 'pt',
+  const response = await fetch('https://openrouter.ai/api/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY_WHYSPER}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://jarvis-five-sigma.vercel.app',
+      'X-OpenRouter-Title': 'Jarvis',
+    },
+    body: JSON.stringify({
+      model: 'openai/whisper-1',
+      input_audio: {
+        data: buffer.toString('base64'),
+        format: cleanMime.includes('ogg') ? 'ogg' : cleanMime.includes('m4a') ? 'm4a' : cleanMime.includes('aac') ? 'aac' : 'mp4',
+      },
+      language: 'pt',
+    }),
   });
 
-  const text = response.text?.trim() || '';
+  if (!response.ok) {
+    const errBody = await response.text().catch(() => '');
+    throw new Error(`Whisper OpenRouter ${response.status}: ${errBody}`);
+  }
+
+  const data = await response.json();
+  const text = (data.text || '').trim();
   logger.info(`Whisper resultado: "${text.slice(0, 100)}"`);
   return text;
 }
