@@ -1,6 +1,13 @@
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createClient } from "@supabase/supabase-js";
 
+function makeDb() {
+  return createClient(
+    `https://${process.env.SUPABASE_PROJECT_ID}.supabase.co`,
+    process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+  );
+}
+
 const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL;
 const EVOLUTION_API_TOKEN = process.env.EVOLUTION_API_TOKEN;
 const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE || 'LiciMonitor';
@@ -21,10 +28,7 @@ export const grcWeeklyCollectionTask = schedules.task({
   run: async () => {
     console.log("[GRC Weekly] Iniciando coleta semanal de gerentes...");
 
-    const db = createClient(
-      `https://${process.env.SUPABASE_PROJECT_ID}.supabase.co`,
-      process.env.SUPABASE_SERVICE_ROLE_KEY || '',
-    );
+    const db = makeDb();
 
     const { data: managers, error } = await db
       .from('grc_users')
@@ -56,7 +60,21 @@ export const grcWeeklyCollectionTask = schedules.task({
 
         const phone = /^55/.test(manager.phone) ? manager.phone : `55${manager.phone}`;
         await sendWhatsApp(phone, message);
-        console.log(`[GRC Weekly] ✅ Mensagem enviada para ${manager.display_name} (${manager.phone})`);
+
+        // Salva pending state para o webhook reconhecer a resposta como coleta GRC
+        const jid = `${phone}@s.whatsapp.net`;
+        await makeDb().from('chats').insert({
+          phone: jid,
+          role: 'pending',
+          content: JSON.stringify({
+            action: 'awaiting_grc_collection',
+            managerId: manager.manager_id,
+            collectedData: {},
+          }),
+          created_at: Date.now(),
+        });
+
+        console.log(`[GRC Weekly] ✅ Mensagem enviada para ${manager.display_name} (${phone})`);
       })
     );
 

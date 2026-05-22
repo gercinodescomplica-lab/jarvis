@@ -101,6 +101,7 @@ async function transcribeWithWhisper(buffer: Buffer, mimetype: string): Promise<
         format: cleanMime.includes('ogg') ? 'ogg' : cleanMime.includes('m4a') ? 'm4a' : cleanMime.includes('aac') ? 'aac' : 'mp4',
       },
       language: 'pt',
+      prompt: 'SMIT, SMSP, SEFAZ, PGM, Casa Civil, Prodam, CX, DRM, GRC, pipeline, licitação, pregão, contrato, secretaria, prefeitura, São Paulo, dashboard, gerente comercial, visita, projeto',
     }),
   });
 
@@ -443,6 +444,113 @@ async function processMessage(phone: string, text: string, source: 'text' | 'aud
           await supabase.from('chats').delete().eq('phone', phone).eq('role', 'pending');
           await enviarAvisoWhatsApp(phone, '❌ Não consegui carregar o email. Tente novamente.');
         }
+        return;
+      }
+
+      if (pending.action === 'awaiting_grc_collection') {
+        await markAsReading(phone);
+
+        // LLM extrai visitas/CX/projetos do texto e decide se faltam infos
+        const extractResult = await generateText({
+          model: getModel(),
+          system: `Você é um assistente de coleta de dados GRC para gerentes comerciais da Prodam (empresa de tecnologia da Prefeitura de São Paulo).
+
+O gerente está respondendo à pergunta semanal sobre: visitas realizadas, CXs (problemas/riscos de clientes) e atualizações de projetos no pipeline.
+
+Dados já coletados nessa sessão (pode ser vazio): ${JSON.stringify(pending.collectedData || {})}
+
+Analise a mensagem do gerente e retorne JSON com:
+{
+  "extracted": {
+    "visits": [{ "titulo": "...", "local": "...", "motivo": "...", "data": "YYYY-MM-DD" }],
+    "cx": [{ "cliente": "...", "titulo": "...", "problema": "...", "criticidade": "baixa|media|alta" }],
+    "projects": [{ "name": "...", "description": "..." }]
+  },
+  "missingInfo": "string com perguntas de follow-up se faltar informação essencial (ex: horário/local de visita), ou null se tiver tudo",
+  "readyToConfirm": true/false
+}
+
+Regras:
+- "data" de visita: inferir da conversa (hoje=${new Date().toISOString().split('T')[0]}, segunda=data anterior, terça=data anterior, etc.)
+- Se o gerente mencionou local mas não data, ou vice-versa, peça apenas o que falta
+- "readyToConfirm": true somente quando não houver dúvidas essenciais
+- Glossário: CX = problema/risco de cliente (não confundir com ex-cliente), SMIT/SMSP/PGM/Casa Civil = secretarias municipais de SP
+- Responda APENAS com JSON válido, sem markdown`,
+          messages: [{ role: 'user', content: text }],
+        });
+
+        let extracted: any = {};
+        let missingInfo: string | null = null;
+        let readyToConfirm = false;
+        try {
+          const parsed = JSON.parse((extractResult.text || '').replace(/```json\n?|```/g, '').trim());
+          extracted = parsed.extracted || {};
+          missingInfo = parsed.missingInfo || null;
+          readyToConfirm = !!parsed.readyToConfirm;
+        } catch { /* usa defaults */ }
+
+        // Merge com dados já coletados anteriormente
+        const prev = pending.collectedData || {};
+        const merged = {
+          visits: [...(prev.visits || []), ...(extracted.visits || [])],
+          cx: [...(prev.cx || []), ...(extracted.cx || [])],
+          projects: [...(prev.projects || []), ...(extracted.projects || [])],
+        };
+
+        if (!readyToConfirm && missingInfo) {
+          // Ainda faltam informações — atualiza o pending e faz follow-up
+          await supabase.from('chats').delete().eq('phone', phone).eq('role', 'pending');
+          await supabase.from('chats').insert({
+            phone,
+            role: 'pending',
+            content: JSON.stringify({
+              action: 'awaiting_grc_collection',
+              managerId: pending.managerId,
+              collectedData: merged,
+            }),
+            created_at: Date.now(),
+          });
+          await enviarAvisoWhatsApp(phone, missingInfo);
+          return;
+        }
+
+        // Tudo coletado — monta resumo e pede confirmação
+        const lines: string[] = ['📋 *Resumo do que vou registrar:*\n'];
+        if (merged.visits?.length) {
+          lines.push('*Visitas:*');
+          merged.visits.forEach((v: any) => lines.push(`• ${v.titulo || v.local} — ${v.data || 'sem data'}`));
+        }
+        if (merged.cx?.length) {
+          lines.push('\n*CXs:*');
+          merged.cx.forEach((c: any) => lines.push(`• ${c.cliente}: ${c.titulo || c.problema}`));
+        }
+        if (merged.projects?.length) {
+          lines.push('\n*Projetos:*');
+          merged.projects.forEach((p: any) => lines.push(`• ${p.name}`));
+        }
+        lines.push('\n_Responda *sim* para confirmar ou *não* para cancelar._');
+        const summary = lines.join('\n');
+
+        const syncPayload = {
+          managerId: pending.managerId,
+          ...(merged.visits?.length ? { visits: { upsert: merged.visits } } : {}),
+          ...(merged.cx?.length ? { cx: { upsert: merged.cx } } : {}),
+          ...(merged.projects?.length ? { projects: { upsert: merged.projects } } : {}),
+        };
+
+        await supabase.from('chats').delete().eq('phone', phone).eq('role', 'pending');
+        await supabase.from('chats').insert({
+          phone,
+          role: 'pending',
+          content: JSON.stringify({
+            action: 'awaiting_grc_sync_confirmation',
+            managerId: pending.managerId,
+            payload: syncPayload,
+            summary,
+          }),
+          created_at: Date.now(),
+        });
+        await enviarAvisoWhatsApp(phone, summary);
         return;
       }
 
