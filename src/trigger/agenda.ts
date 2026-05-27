@@ -1,5 +1,5 @@
 import { schedules } from "@trigger.dev/sdk/v3";
-import { getAgendaSemana, enviarAvisoWhatsApp } from "../cron/agenda";
+import { getAgendaSemana, getAgendaUsuario, enviarAvisoWhatsApp } from "../cron/agenda";
 
 export const sendAgendaTask = schedules.task({
   id: "enviar-agenda-diaria",
@@ -17,12 +17,6 @@ export const sendAgendaTask = schedules.task({
 
     const { relatorio, hasEvents } = await getAgendaSemana();
 
-    // Regra do fim de semana: sexta → sábado e sábado → domingo só envia se tiver eventos
-    if (isTomorrowWeekend && !hasEvents) {
-      console.log(`[Agenda] 🔕 Amanhã é fim de semana sem eventos — silêncio.`);
-      return;
-    }
-
     const primary = process.env.TARGET_WHATSAPP_GROUP || "5511949633602";
     const dani = "5516981317391";
     const grupoGe = "120363420097358880@g.us";
@@ -33,12 +27,35 @@ export const sendAgendaTask = schedules.task({
 
     const recipients = [...new Set([primary, dani, grupoGe, ...extra])];
 
-    for (const dest of recipients) {
+    // Regra do fim de semana: só envia para o Tiago se tiver eventos
+    if (!isTomorrowWeekend || hasEvents) {
+      for (const dest of recipients) {
+        try {
+          await enviarAvisoWhatsApp(dest, relatorio);
+          console.log(`[Agenda] ✅ Agenda enviada para ${dest}.`);
+        } catch (err) {
+          console.error(`[Agenda] ❌ Falha ao enviar para ${dest}:`, err);
+        }
+      }
+    } else {
+      console.log(`[Agenda] 🔕 Amanhã é fim de semana sem eventos — silêncio para o Tiago.`);
+    }
+
+    // Agenda da Marcella Batista enviada direto para o número dela
+    console.log("[Agenda] ⏰ Buscando agenda da Marcella...");
+    const { relatorio: relatorioMarcella, hasEvents: hasEventsMarcella } = await getAgendaUsuario(
+      "marcellabatista@prodam.sp.gov.br",
+      "Marcella Batista",
+    );
+
+    if (isTomorrowWeekend && !hasEventsMarcella) {
+      console.log("[Agenda] 🔕 Marcella: amanhã é fim de semana sem eventos — silêncio.");
+    } else {
       try {
-        await enviarAvisoWhatsApp(dest, relatorio);
-        console.log(`[Agenda] ✅ Agenda enviada para ${dest}.`);
+        await enviarAvisoWhatsApp("5511961117448", relatorioMarcella);
+        console.log("[Agenda] ✅ Agenda da Marcella enviada para 5511961117448.");
       } catch (err) {
-        console.error(`[Agenda] ❌ Falha ao enviar para ${dest}:`, err);
+        console.error("[Agenda] ❌ Falha ao enviar agenda da Marcella:", err);
       }
     }
   },

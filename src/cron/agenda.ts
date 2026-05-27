@@ -23,6 +23,83 @@ export async function enviarAvisoWhatsApp(telefone: string, mensagemTexto: strin
   }
 }
 
+export async function getAgendaUsuario(
+  userEmail: string,
+  nomeExibicao: string,
+): Promise<{ relatorio: string; hasEvents: boolean }> {
+  const adapter = new GraphCalendarAdapter();
+  try {
+    const targetEmails = [userEmail];
+
+    const results = await adapter.getEventsForUsers(targetEmails, 2);
+
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(now.getDate() + 1);
+
+    const tomorrowDateStr = tomorrow.toLocaleDateString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      weekday: 'long',
+      day: '2-digit',
+      month: '2-digit',
+    });
+
+    const tomorrowDayStr = tomorrow.toLocaleDateString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      day: '2-digit',
+      month: '2-digit',
+    });
+
+    const nomeUpper = nomeExibicao.toUpperCase();
+    let relatorio = `*🗓️ AGENDA DE AMANHÃ: ${nomeUpper}*\n_${tomorrowDateStr}_\n\n`;
+    let hasEvents = false;
+
+    results.forEach(r => {
+      if (r.error) {
+        relatorio += `❌ Erro ao ler calendário.\n`;
+        return;
+      }
+
+      const tomorrowEvents = (r.events || []).filter((e: any) => {
+        const dt = new Date(e.start.dateTime);
+        const dtStr = dt.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit' });
+        return dtStr === tomorrowDayStr;
+      });
+
+      if (tomorrowEvents.length === 0) {
+        relatorio += `✅ Nenhuma reunião programada para amanhã.\n`;
+        return;
+      }
+
+      hasEvents = true;
+
+      const sortedEvents = tomorrowEvents.sort((a: any, b: any) =>
+        new Date(a.start.dateTime).getTime() - new Date(b.start.dateTime).getTime()
+      );
+
+      sortedEvents.forEach((e: any) => {
+        const dt = new Date(e.start.dateTime);
+        const time = dt.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
+
+        let loc = e.location?.displayName || '';
+        if (loc.includes('Teams')) loc = 'Microsoft Teams';
+        if (loc.includes('Google') || loc.includes('Meet')) loc = 'Google Meet';
+
+        const locAppend = loc ? ` (${loc})` : '';
+        relatorio += `• ${time} - ${e.subject}${locAppend}\n`;
+      });
+    });
+
+    return { relatorio, hasEvents };
+  } catch (error) {
+    console.error(`[CRON] Erro ao buscar agenda de ${userEmail}:`, error);
+    return {
+      relatorio: `*❌ Jarvis Error:* Não consegui buscar a agenda de ${nomeExibicao} para o resumo de hoje.`,
+      hasEvents: false,
+    };
+  }
+}
+
 export async function getAgendaSemana(): Promise<{ relatorio: string; hasEvents: boolean }> {
   const adapter = new GraphCalendarAdapter();
   try {

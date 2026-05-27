@@ -55,7 +55,7 @@ export const searchProjects = cachedTool({
 export const getCalendarEvents = cachedTool({
     name: 'getCalendarEvents',
     cacheTtlMs: 0, // sem cache — agenda deve sempre retornar dados atualizados
-    description: 'Get upcoming calendar events and meetings from Microsoft Graph. You can specify a user email or name. Users available: tiagoluz@prodam.sp.gov.br (Tiago), danielleoliveira@prodam.sp.gov.br (Danielle), gercinoneto@prodam.sp.gov.br (Gercino). Use this tool also when asked for available times (free slots) or meetings with specific people, and calculate the results based on the returned events and their attendees. Assume working hours from 09:00 to 18:00.\n\nCRITICAL: You MUST explicitly set the "days" parameter based on the user\'s timeframe:\n- "hoje" / "today" → days=1, show only events starting today\n- "amanhã" / "tomorrow" → days=2, show ONLY events starting tomorrow (filter out today\'s events)\n- "essa semana" / "próximos X dias" → days=7\n- "próximo mês" → days=31\nWhen user asks for "amanhã", do NOT show today\'s events — filter the results and show only tomorrow.',
+    description: 'Get upcoming calendar events and meetings from Microsoft Graph. You can specify a user email or name. Users available: tiagoluz@prodam.sp.gov.br (Tiago), danielleoliveira@prodam.sp.gov.br (Danielle), gercinoneto@prodam.sp.gov.br (Gercino), marcellabatista@prodam.sp.gov.br (Marcella). Use this tool also when asked for available times (free slots) or meetings with specific people, and calculate the results based on the returned events and their attendees. Assume working hours from 09:00 to 18:00.\n\nCRITICAL: You MUST explicitly set the "days" parameter based on the user\'s timeframe:\n- "hoje" / "today" → days=1, show only events starting today\n- "amanhã" / "tomorrow" → days=2, show ONLY events starting tomorrow (filter out today\'s events)\n- "essa semana" / "próximos X dias" → days=7\n- "próximo mês" → days=31\nWhen user asks for "amanhã", do NOT show today\'s events — filter the results and show only tomorrow.',
     inputSchema: jsonSchema<{ days: number, userName?: string }>({
         type: 'object',
         properties: {
@@ -83,6 +83,7 @@ export const getCalendarEvents = cachedTool({
                 if (lowerName.includes('tiago')) targetEmails = ['tiagoluz@prodam.sp.gov.br'];
                 else if (lowerName.includes('danielle') || lowerName.includes('dani')) targetEmails = ['danielleoliveira@prodam.sp.gov.br'];
                 else if (lowerName.includes('gercino') || lowerName.includes('neto')) targetEmails = ['gercinoneto@prodam.sp.gov.br'];
+                else if (lowerName.includes('marcella') || lowerName.includes('marcela')) targetEmails = ['marcellabatista@prodam.sp.gov.br'];
                 else if (userName.includes('@')) targetEmails = [userName];
             }
 

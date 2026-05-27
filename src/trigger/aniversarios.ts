@@ -47,8 +47,12 @@ export const aniversariosTask = schedules.task({
     }
 
     for (const dest of recipients) {
-      await enviarAvisoWhatsApp(dest, mensagem);
-      console.log(`[Aniversários] ✅ Mensagem enviada para ${dest}.`);
+      try {
+        await enviarAvisoWhatsApp(dest, mensagem);
+        console.log(`[Aniversários] ✅ Mensagem enviada para ${dest}.`);
+      } catch (err) {
+        console.error(`[Aniversários] ❌ Falha ao enviar para ${dest}:`, err);
+      }
     }
   },
 });
